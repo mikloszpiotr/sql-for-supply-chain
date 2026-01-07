@@ -1,0 +1,186 @@
+-- ============================================================================
+-- LESSON 1: SELECT and FROM Basics
+-- ============================================================================
+-- This is the foundation of all SQL queries. Every query you write will
+-- start with SELECT and FROM.
+--
+-- SELECT: tells the database WHAT data you want to retrieve
+-- FROM: tells the database WHERE to get the data (which table)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Retrieve ALL columns from the inventory table
+-- ----------------------------------------------------------------------------
+-- The asterisk (*) is a wildcard that means "all columns"
+-- This will show you every piece of information for every row in the table
+
+SELECT *
+FROM inventory;
+
+-- What this does:
+-- - Goes to the "inventory" table
+-- - Gets ALL columns (product_id, quantity, warehouse_id, etc.)
+-- - Returns ALL rows (every single inventory record)
+--
+-- When to use this:
+-- - When you're exploring a new table and want to see what data exists
+-- - When you need absolutely all information
+-- - For quick data checks during development
+--
+-- Warning: In production with large tables (millions of rows), this can be
+-- slow and return too much data. Use carefully!
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Retrieve ALL columns from the products table
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM products;
+
+-- What you might see in results:
+-- product_id | product_name        | category      | price | supplier_id
+-- -----------|---------------------|---------------|-------|------------
+-- 1001       | Widget A            | Electronics   | 29.99 | 501
+-- 1002       | Gadget B            | Tools         | 15.50 | 502
+-- 1003       | Component C         | Electronics   | 99.99 | 501
+--
+-- This gives you the complete product catalog with all details
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Retrieve ALL columns from the orders table
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM orders;
+
+-- What you might see:
+-- order_id | customer_id | order_date  | ship_date   | status    | total
+-- ---------|-------------|-------------|-------------|-----------|-------
+-- 5001     | C123        | 2024-01-15  | 2024-01-17  | Delivered | 450.00
+-- 5002     | C456        | 2024-01-16  | NULL        | Pending   | 230.50
+-- 5003     | C789        | 2024-01-16  | 2024-01-18  | Shipped   | 1200.00
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Retrieve ALL columns from the suppliers table
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM suppliers;
+
+-- Typical supplier data might include:
+-- supplier_id | supplier_name     | country | contact_email        | rating
+-- ------------|-------------------|---------|----------------------|-------
+-- 501         | ABC Manufacturing | USA     | sales@abc.com        | 4.5
+-- 502         | XYZ Components    | China   | orders@xyz.com       | 4.8
+-- 503         | Global Supply Co  | Germany | contact@global.com   | 4.2
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Retrieve ALL columns from the shipments table
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM shipments;
+
+-- Shipment tracking information:
+-- shipment_id | order_id | carrier     | tracking_number | ship_date   | delivery_date
+-- ------------|----------|-------------|-----------------|-------------|---------------
+-- SH001       | 5001     | FedEx       | FX123456789     | 2024-01-17  | 2024-01-20
+-- SH002       | 5003     | UPS         | 1Z999AA1234     | 2024-01-18  | 2024-01-21
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Retrieve ALL columns from the warehouses table
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM warehouses;
+
+-- Warehouse location and capacity data:
+-- warehouse_id | warehouse_name | city        | state | capacity | current_usage
+-- -------------|----------------|-------------|-------|----------|---------------
+-- WH01         | East Coast DC  | New York    | NY    | 100000   | 75000
+-- WH02         | West Coast DC  | Los Angeles | CA    | 120000   | 90000
+-- WH03         | Central DC     | Chicago     | IL    | 80000    | 45000
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER:
+-- ============================================================================
+
+-- 1. Basic Structure:
+--    SELECT [what you want]
+--    FROM [where it lives];
+
+-- 2. The semicolon (;) at the end tells SQL "this query is complete"
+
+-- 3. SQL is NOT case-sensitive for keywords:
+--    These all work the same:
+--    SELECT * FROM products;
+--    select * from products;
+--    SeLeCt * FrOm products;
+--    
+--    However, UPPERCASE for keywords is the standard convention
+
+-- 4. Table names and column names CAN be case-sensitive depending on 
+--    your database system (MySQL on Linux, PostgreSQL)
+
+-- 5. Whitespace and line breaks don't matter - these are identical:
+SELECT * FROM inventory;
+
+SELECT *
+FROM inventory;
+
+SELECT 
+    * 
+FROM 
+    inventory;
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID:
+-- ============================================================================
+
+-- WRONG: Missing FROM clause
+-- SELECT *;
+
+-- WRONG: Misspelled table name
+-- SELECT * FROM inventorry;  -- Should be "inventory"
+
+-- WRONG: Missing semicolon (some systems require it)
+-- SELECT * FROM products
+
+-- WRONG: Trying to select from a table that doesn't exist
+-- SELECT * FROM unicorns;  -- Table must exist in your database
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES:
+-- ============================================================================
+-- Try writing queries to retrieve all data from these common supply chain tables:
+
+-- 1. Get all data from the customers table
+-- SELECT * FROM customers;
+
+-- 2. Get all data from the order_details table
+-- SELECT * FROM order_details;
+
+-- 3. Get all data from the carriers table
+-- SELECT * FROM carriers;
+
+-- 4. Get all data from the purchase_orders table
+-- SELECT * FROM purchase_orders;
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn how to:
+-- - Select SPECIFIC columns instead of all columns (SELECT product_name, price)
+-- - This is more efficient and gives you cleaner, focused results
+-- - Example: SELECT product_name, quantity FROM inventory;
+-- ============================================================================
