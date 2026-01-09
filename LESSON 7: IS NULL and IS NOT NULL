@@ -1,0 +1,718 @@
+-- ============================================================================
+-- LESSON 7: IS NULL and IS NOT NULL
+-- ============================================================================
+-- NULL is a special value in SQL that represents "no value" or "unknown".
+-- It's NOT the same as zero (0), empty string (''), or false.
+-- NULL means the data is missing, unknown, or not applicable.
+--
+-- You CANNOT use = or != to check for NULL values.
+-- You MUST use IS NULL or IS NOT NULL.
+--
+-- Why this matters in supply chain:
+-- - Missing supplier contacts
+-- - Orders without tracking numbers
+-- - Products without descriptions
+-- - Incomplete address information
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: UNDERSTANDING NULL
+-- ----------------------------------------------------------------------------
+
+-- What NULL represents:
+-- - Missing information (customer didn't provide phone number)
+-- - Unknown value (delivery date not yet determined)
+-- - Not applicable (no discount code used on order)
+-- - Data entry error (forgot to fill in required field)
+
+
+-- Example 1: Find products without descriptions
+-- Some products may be missing catalog descriptions
+
+SELECT product_id, product_name, description, price
+FROM products
+WHERE description IS NULL;
+
+-- Results:
+-- product_id | product_name    | description | price
+-- -----------|-----------------|-------------|-------
+-- 1003       | Component C     | NULL        | 99.99
+-- 1009       | Part Z          | NULL        | 35.50
+-- 1015       | Widget Pro Max  | NULL        | 159.99
+--
+-- Use case: Quality control - finding incomplete product data
+-- These products need descriptions added for the catalog
+
+
+-- Example 2: Find suppliers missing contact information
+-- Critical for supply chain operations
+
+SELECT supplier_id, supplier_name, contact_email, phone
+FROM suppliers
+WHERE contact_email IS NULL;
+
+-- Results:
+-- supplier_id | supplier_name     | contact_email | phone
+-- ------------|-------------------|---------------|----------
+-- 503         | Global Supply Co  | NULL          | 555-0103
+-- 507         | Regional Parts    | NULL          | NULL
+-- 512         | Local Distributor | NULL          | 555-0156
+--
+-- Use case: Data cleanup priority list
+-- These suppliers need contact information updated urgently
+
+
+-- Example 3: Find suppliers missing BOTH email AND phone
+-- Most critical data gaps
+
+SELECT supplier_id, supplier_name, contact_email, phone, country
+FROM suppliers
+WHERE contact_email IS NULL 
+  AND phone IS NULL;
+
+-- Results:
+-- supplier_id | supplier_name  | contact_email | phone | country
+-- ------------|----------------|---------------|-------|----------
+-- 507         | Regional Parts | NULL          | NULL  | USA
+-- 515         | TempSupplier   | NULL          | NULL  | Canada
+--
+-- Use case: URGENT - suppliers with no way to contact them
+-- Business risk - cannot place orders or resolve issues
+
+
+-- Example 4: Orders without tracking numbers
+-- Orders that haven't been shipped yet
+
+SELECT order_id, customer_id, order_date, status, tracking_number
+FROM orders
+WHERE tracking_number IS NULL;
+
+-- Results:
+-- order_id | customer_id | order_date  | status     | tracking_number
+-- ---------|-------------|-------------|------------|----------------
+-- 5002     | C456        | 2024-01-16  | Pending    | NULL
+-- 5009     | C345        | 2024-01-19  | Processing | NULL
+-- 5011     | C678        | 2024-01-20  | Pending    | NULL
+--
+-- Use case: Orders not yet shipped or tracking not entered
+-- Operations team needs to update these once shipped
+
+
+-- Example 5: Products without supplier assignment
+-- Orphaned products in the system
+
+SELECT product_id, product_name, supplier_id, price
+FROM products
+WHERE supplier_id IS NULL;
+
+-- Results:
+-- product_id | product_name       | supplier_id | price
+-- -----------|--------------------|-------------|-------
+-- 1018       | Legacy Component   | NULL        | 67.50
+-- 1025       | Discontinued Item  | NULL        | 89.99
+--
+-- Use case: Data integrity issue - products need supplier assignment
+-- Cannot reorder these products without knowing the supplier
+
+
+-- Example 6: Customers missing shipping addresses
+-- Cannot fulfill orders without addresses
+
+SELECT customer_id, customer_name, email, shipping_address
+FROM customers
+WHERE shipping_address IS NULL;
+
+-- Results:
+-- customer_id | customer_name    | email              | shipping_address
+-- ------------|------------------|--------------------|------------------
+-- C234        | New Customer     | new@email.com      | NULL
+-- C567        | Guest Checkout   | guest@email.com    | NULL
+-- C890        | Incomplete Setup | partial@email.com  | NULL
+--
+-- Use case: Follow up with customers to get complete information
+-- Orders cannot be shipped to these customers
+
+
+-- Example 7: Inventory without warehouse location
+-- Products in limbo - not assigned to any warehouse
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id IS NULL;
+
+-- Results:
+-- product_id | product_name  | quantity | warehouse_id
+-- -----------|---------------|----------|-------------
+-- 1015       | Widget Pro    | 50       | NULL
+-- 1023       | Mystery Item  | 12       | NULL
+--
+-- Use case: Physical inventory discrepancy
+-- These items exist but location is unknown - need physical audit
+
+
+-- Example 8: Orders without estimated delivery dates
+-- Customer service concern
+
+SELECT order_id, customer_id, order_date, estimated_delivery, status
+FROM orders
+WHERE estimated_delivery IS NULL
+  AND status != 'Cancelled';
+
+-- Results:
+-- order_id | customer_id | order_date  | estimated_delivery | status
+-- ---------|-------------|-------------|--------------------|----------
+-- 5002     | C456        | 2024-01-16  | NULL               | Pending
+-- 5011     | C678        | 2024-01-20  | NULL               | Processing
+--
+-- Use case: Orders needing delivery date estimates
+-- Customer expectations management - need to calculate and update
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: IS NOT NULL - Finding Complete Data
+-- ----------------------------------------------------------------------------
+
+-- Example 9: Find products WITH descriptions (complete records)
+-- Ready for publication in catalog
+
+SELECT product_id, product_name, description, price
+FROM products
+WHERE description IS NOT NULL;
+
+-- Results:
+-- product_id | product_name    | description              | price
+-- -----------|-----------------|--------------------------|-------
+-- 1001       | Widget A        | High quality widget...   | 29.99
+-- 1002       | Gadget B        | Professional grade...    | 15.50
+-- 1008       | Smart Device    | Advanced smart tech...   | 249.99
+--
+-- Use case: Products ready for marketing and catalog publication
+-- Complete product information available
+
+
+-- Example 10: Find suppliers WITH complete contact information
+-- Reliable suppliers we can easily reach
+
+SELECT supplier_id, supplier_name, contact_email, phone
+FROM suppliers
+WHERE contact_email IS NOT NULL 
+  AND phone IS NOT NULL;
+
+-- Results:
+-- supplier_id | supplier_name     | contact_email    | phone
+-- ------------|-------------------|------------------|----------
+-- 501         | ABC Manufacturing | sales@abc.com    | 555-0101
+-- 502         | XYZ Components    | orders@xyz.com   | 555-0102
+-- 505         | Premium Supplies  | contact@prem.com | 555-0105
+--
+-- Use case: Preferred supplier list - complete contact information
+-- These suppliers can be contacted through multiple channels
+
+
+-- Example 11: Orders WITH tracking numbers (shipped orders)
+-- Orders that have been dispatched
+
+SELECT order_id, customer_id, order_date, tracking_number, carrier
+FROM orders
+WHERE tracking_number IS NOT NULL;
+
+-- Results:
+-- order_id | customer_id | order_date  | tracking_number | carrier
+-- ---------|-------------|-------------|-----------------|--------
+-- 5001     | C123        | 2024-01-15  | FX123456789     | FedEx
+-- 5003     | C789        | 2024-01-16  | 1Z999AA1234     | UPS
+-- 5005     | C234        | 2024-01-17  | 9400111899223   | USPS
+--
+-- Use case: Shipped orders that customers can track
+-- Customer service can provide tracking information
+
+
+-- Example 12: Products WITH assigned suppliers
+-- Products with known sourcing
+
+SELECT product_id, product_name, supplier_id, price
+FROM products
+WHERE supplier_id IS NOT NULL;
+
+-- Results:
+-- product_id | product_name    | supplier_id | price
+-- -----------|-----------------|-------------|-------
+-- 1001       | Widget A        | 501         | 29.99
+-- 1002       | Gadget B        | 502         | 15.50
+-- 1003       | Component C     | 501         | 99.99
+--
+-- Use case: Products that can be reordered
+-- Supplier relationship established
+
+
+-- Example 13: Customers WITH complete shipping addresses
+-- Ready to receive shipments
+
+SELECT customer_id, customer_name, email, shipping_address, phone
+FROM customers
+WHERE shipping_address IS NOT NULL 
+  AND phone IS NOT NULL;
+
+-- Results:
+-- customer_id | customer_name | email           | shipping_address      | phone
+-- ------------|---------------|-----------------|-----------------------|----------
+-- C123        | John Smith    | john@email.com  | 123 Main St, NY       | 555-1234
+-- C456        | Sarah Johnson | sarah@email.com | 456 Oak Ave, CA       | 555-5678
+--
+-- Use case: Customers with complete profiles
+-- Can ship orders immediately without waiting for information
+
+
+-- Example 14: Inventory WITH warehouse assignments
+-- Properly tracked inventory
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id IS NOT NULL 
+  AND quantity > 0;
+
+-- Results:
+-- product_id | product_name  | quantity | warehouse_id
+-- -----------|---------------|----------|-------------
+-- 1001       | Widget A      | 150      | WH01
+-- 1002       | Gadget B      | 89       | WH02
+-- 1004       | Tool Set D    | 245      | WH03
+--
+-- Use case: Accurately located inventory available for sale
+-- Physical location known and stock available
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: COMBINING NULL CHECKS WITH OTHER CONDITIONS
+-- ----------------------------------------------------------------------------
+
+-- Example 15: High-value orders without tracking
+-- Priority follow-up needed
+
+SELECT order_id, customer_id, total, order_date, status
+FROM orders
+WHERE tracking_number IS NULL 
+  AND total > 500
+  AND status != 'Cancelled';
+
+-- Results:
+-- order_id | customer_id | total   | order_date  | status
+-- ---------|-------------|---------|-------------|----------
+-- 5006     | C789        | 875.50  | 2024-01-18  | Processing
+-- 5011     | C456        | 1200.00 | 2024-01-20  | Pending
+--
+-- Use case: High-value orders needing immediate shipping attention
+-- Large orders that need tracking ASAP for customer satisfaction
+
+
+-- Example 16: Electronics without descriptions
+-- Category-specific data cleanup
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category = 'Electronics' 
+  AND description IS NULL;
+
+-- Results:
+-- product_id | product_name    | category    | price
+-- -----------|-----------------|-------------|-------
+-- 1003       | Component C     | Electronics | 99.99
+-- 1015       | Widget Pro Max  | Electronics | 159.99
+--
+-- Use case: Priority catalog content needed for Electronics
+-- High-demand category needs complete information
+
+
+-- Example 17: Old orders still without tracking
+-- Potentially stuck orders
+
+SELECT order_id, customer_id, order_date, status, tracking_number
+FROM orders
+WHERE tracking_number IS NULL 
+  AND order_date < '2024-01-15'
+  AND status NOT IN ('Delivered', 'Cancelled');
+
+-- Results:
+-- order_id | customer_id | order_date  | status     | tracking_number
+-- ---------|-------------|-------------|------------|----------------
+-- 5001     | C123        | 2024-01-10  | Processing | NULL
+-- 5003     | C456        | 2024-01-12  | Pending    | NULL
+--
+-- Use case: Overdue shipments investigation
+-- Orders from over a week ago should have tracking by now
+
+
+-- Example 18: Low stock items without supplier
+-- Cannot reorder critical items
+
+SELECT product_id, product_name, quantity, supplier_id
+FROM inventory
+WHERE quantity < 20 
+  AND supplier_id IS NULL;
+
+-- Results:
+-- product_id | product_name     | quantity | supplier_id
+-- -----------|------------------|----------|------------
+-- 1018       | Legacy Component | 8        | NULL
+-- 1025       | Old Stock Item   | 12       | NULL
+--
+-- Use case: CRITICAL - low stock items with no reorder path
+-- Need to find suppliers or discontinue products
+
+
+-- Example 19: Premium products with complete information
+-- Marketing-ready premium items
+
+SELECT product_id, product_name, description, price, supplier_id
+FROM products
+WHERE price > 100 
+  AND description IS NOT NULL 
+  AND supplier_id IS NOT NULL;
+
+-- Results:
+-- product_id | product_name       | description          | price  | supplier_id
+-- -----------|--------------------|----------------------|--------|------------
+-- 1008       | Smart Device       | Advanced smart...    | 249.99 | 501
+-- 1004       | Tool Set D         | Professional grade...| 125.00 | 503
+-- 1020       | Premium Gadget     | Top-tier product...  | 399.99 | 501
+--
+-- Use case: Premium products ready for promotion
+-- Complete information for high-value items
+
+
+-- Example 20: Regional suppliers missing key information
+-- Geographic data cleanup
+
+SELECT supplier_id, supplier_name, country, contact_email, phone
+FROM suppliers
+WHERE country = 'United States' 
+  AND (contact_email IS NULL OR phone IS NULL);
+
+-- Results:
+-- supplier_id | supplier_name     | country       | contact_email | phone
+-- ------------|-------------------|---------------|---------------|-------
+-- 503         | Global Supply Co  | United States | NULL          | 555-0103
+-- 512         | Local Distributor | United States | info@loc.com  | NULL
+--
+-- Use case: Domestic supplier contact information gaps
+-- Priority cleanup for US-based suppliers
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: NULL IN CALCULATIONS AND COMPARISONS
+-- ----------------------------------------------------------------------------
+
+-- Example 21: Understanding NULL in comparisons
+-- NULL is NOT equal to anything, not even NULL!
+
+-- This will NOT work (returns no results even if NULL values exist):
+-- SELECT * FROM products WHERE description = NULL;     ❌ WRONG
+
+-- This is correct:
+SELECT product_id, product_name, description
+FROM products
+WHERE description IS NULL;  -- ✅ CORRECT
+
+-- Demonstration:
+-- NULL = NULL    → NULL (not TRUE)
+-- NULL != NULL   → NULL (not TRUE)
+-- NULL > 0       → NULL (not TRUE)
+-- NULL < 100     → NULL (not TRUE)
+
+
+-- Example 22: NULL in calculations
+-- Any arithmetic operation with NULL results in NULL
+
+SELECT 
+    order_id,
+    total,
+    discount,
+    total - discount AS net_amount  -- If discount is NULL, result is NULL
+FROM orders;
+
+-- Results example:
+-- order_id | total  | discount | net_amount
+-- ---------|--------|----------|------------
+-- 5001     | 450.00 | 50.00    | 400.00
+-- 5002     | 230.50 | NULL     | NULL       ← NULL discount makes result NULL
+-- 5003     | 1200.0 | 100.00   | 1100.00
+
+
+-- Example 23: Handling NULL in calculations with COALESCE
+-- COALESCE returns first non-NULL value
+
+SELECT 
+    order_id,
+    total,
+    discount,
+    total - COALESCE(discount, 0) AS net_amount  -- Treats NULL as 0
+FROM orders;
+
+-- Results:
+-- order_id | total  | discount | net_amount
+-- ---------|--------|----------|------------
+-- 5001     | 450.00 | 50.00    | 400.00
+-- 5002     | 230.50 | NULL     | 230.50     ← NULL treated as 0
+-- 5003     | 1200.0 | 100.00   | 1100.00
+--
+-- Use case: Accurate order totals even when discount not applied
+
+
+-- Example 24: Finding orders with or without discounts
+-- Separate business logic for discounted vs non-discounted
+
+SELECT order_id, customer_id, total, discount
+FROM orders
+WHERE discount IS NOT NULL;  -- Orders that USED a discount
+
+SELECT order_id, customer_id, total, discount
+FROM orders
+WHERE discount IS NULL;      -- Orders WITHOUT discounts
+
+-- Use case: Promotion effectiveness analysis
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: REAL-WORLD SUPPLY CHAIN DATA QUALITY SCENARIOS
+-- ----------------------------------------------------------------------------
+
+-- Scenario 1: Complete supplier audit
+-- Find all data quality issues with suppliers
+
+SELECT 
+    supplier_id,
+    supplier_name,
+    CASE 
+        WHEN contact_email IS NULL THEN 'Missing Email'
+        WHEN phone IS NULL THEN 'Missing Phone'
+        WHEN country IS NULL THEN 'Missing Country'
+        ELSE 'Complete'
+    END AS data_quality_status,
+    contact_email,
+    phone,
+    country
+FROM suppliers
+WHERE contact_email IS NULL 
+   OR phone IS NULL 
+   OR country IS NULL;
+
+-- Use case: Comprehensive supplier data cleanup project
+
+
+-- Scenario 2: Shipment readiness report
+-- Orders ready to ship vs not ready
+
+SELECT 
+    order_id,
+    customer_id,
+    status,
+    CASE 
+        WHEN tracking_number IS NULL THEN 'Not Shipped'
+        ELSE 'Shipped'
+    END AS shipment_status
+FROM orders
+WHERE status IN ('Processing', 'Shipped')
+ORDER BY tracking_number IS NULL DESC;  -- NULL first (not shipped)
+
+-- Use case: Daily operations dashboard
+
+
+-- Scenario 3: Product catalog completeness
+-- Percentage of products with complete information
+
+SELECT 
+    COUNT(*) AS total_products,
+    COUNT(description) AS products_with_description,
+    COUNT(supplier_id) AS products_with_supplier,
+    COUNT(*) - COUNT(description) AS missing_descriptions,
+    COUNT(*) - COUNT(supplier_id) AS missing_suppliers
+FROM products;
+
+-- Results:
+-- total_products | products_with_description | products_with_supplier | missing_descriptions | missing_suppliers
+-- ---------------|---------------------------|------------------------|----------------------|------------------
+-- 100            | 87                        | 95                     | 13                   | 5
+--
+-- Use case: Data quality KPI reporting
+
+
+-- Scenario 4: Customer communication gaps
+-- Customers we cannot contact
+
+SELECT customer_id, customer_name, email, phone
+FROM customers
+WHERE (email IS NULL OR email = '') 
+  AND (phone IS NULL OR phone = '');
+
+-- Use case: Critical customer data gaps
+-- Cannot contact these customers about their orders
+
+
+-- Scenario 5: Inventory location unknown
+-- Physical audit needed
+
+SELECT 
+    i.product_id,
+    p.product_name,
+    i.quantity,
+    i.warehouse_id,
+    CASE 
+        WHEN i.warehouse_id IS NULL THEN 'Location Unknown - Audit Needed'
+        ELSE w.warehouse_name
+    END AS location_status
+FROM inventory i
+LEFT JOIN products p ON i.product_id = p.product_id
+LEFT JOIN warehouses w ON i.warehouse_id = w.warehouse_id
+WHERE i.warehouse_id IS NULL;
+
+-- Use case: Physical inventory reconciliation project
+
+
+-- Scenario 6: Urgent orders without tracking
+-- SLA at risk
+
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    DATEDIFF(CURRENT_DATE, order_date) AS days_since_order,
+    total,
+    status
+FROM orders
+WHERE tracking_number IS NULL 
+  AND status != 'Cancelled'
+  AND DATEDIFF(CURRENT_DATE, order_date) > 2  -- Over 2 days old
+ORDER BY days_since_order DESC;
+
+-- Use case: SLA breach prevention
+-- Orders over 2 days old should have tracking
+
+
+-- Scenario 7: Products without pricing
+-- Cannot sell these items
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE price IS NULL OR price = 0;
+
+-- Use case: Pricing team needs to set prices
+
+
+-- Scenario 8: Incomplete shipping addresses
+-- Orders at risk of delivery failure
+
+SELECT 
+    o.order_id,
+    c.customer_name,
+    c.shipping_address,
+    c.city,
+    c.state,
+    c.zip_code
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.status IN ('Pending', 'Processing')
+  AND (c.shipping_address IS NULL 
+   OR c.city IS NULL 
+   OR c.state IS NULL 
+   OR c.zip_code IS NULL);
+
+-- Use case: Address validation before shipping
+-- Prevent failed deliveries
+
+
+-- ============================================================================
+-- NULL HANDLING BEST PRACTICES
+-- ============================================================================
+
+-- 1. Always use IS NULL or IS NOT NULL (never = NULL or != NULL)
+-- 2. Consider using COALESCE() or IFNULL() for calculations
+-- 3. Document which columns should never be NULL (required fields)
+-- 4. Regular data quality audits for NULL values
+-- 5. Set NOT NULL constraints at database level when appropriate
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Using = to check for NULL
+-- SELECT * FROM products WHERE description = NULL;
+
+-- CORRECT: Use IS NULL
+SELECT * FROM products WHERE description IS NULL;
+
+
+-- WRONG: Using != to check for NOT NULL
+-- SELECT * FROM products WHERE description != NULL;
+
+-- CORRECT: Use IS NOT NULL
+SELECT * FROM products WHERE description IS NOT NULL;
+
+
+-- WRONG: Confusing NULL with empty string
+-- NULL is not the same as ''
+-- SELECT * FROM products WHERE description = '';  -- Finds empty strings, not NULL
+
+
+-- WRONG: Forgetting NULL in calculations
+-- SELECT total - discount FROM orders;  -- Returns NULL if discount is NULL
+
+-- CORRECT: Handle NULL explicitly
+SELECT total - COALESCE(discount, 0) FROM orders;
+
+
+-- WRONG: Using OR when you mean AND
+-- SELECT * FROM suppliers WHERE email IS NULL OR phone IS NULL;
+-- This finds suppliers missing EITHER field
+
+-- If you want suppliers missing BOTH:
+SELECT * FROM suppliers WHERE email IS NULL AND phone IS NULL;
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Find all orders without shipping addresses
+-- SELECT order_id, customer_id FROM orders o 
+-- JOIN customers c ON o.customer_id = c.customer_id 
+-- WHERE c.shipping_address IS NULL;
+
+
+-- Exercise 2: Find products with prices but no descriptions
+-- SELECT product_id, product_name, price 
+-- FROM products 
+-- WHERE price IS NOT NULL AND description IS NULL;
+
+
+-- Exercise 3: Find suppliers missing email OR phone (either one)
+-- SELECT supplier_id, supplier_name, contact_email, phone 
+-- FROM suppliers 
+-- WHERE contact_email IS NULL OR phone IS NULL;
+
+
+-- Exercise 4: Find low stock items (< 25) without suppliers
+-- SELECT product_id, product_name, quantity 
+-- FROM inventory i 
+-- JOIN products p ON i.product_id = p.product_id 
+-- WHERE quantity < 25 AND supplier_id IS NULL;
+
+
+-- Exercise 5: Find customers with complete information (no NULL fields)
+-- SELECT customer_id, customer_name 
+-- FROM customers 
+-- WHERE email IS NOT NULL AND phone IS NOT NULL 
+--   AND shipping_address IS NOT NULL;
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - ORDER BY clause for sorting results
+-- - ASC (ascending) and DESC (descending) order
+-- - Sorting by multiple columns
+-- - Example: ORDER BY price DESC, product_name ASC
+-- - Finding top/bottom performers in your supply chain
+-- ============================================================================
