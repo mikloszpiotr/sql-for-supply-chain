@@ -1,0 +1,700 @@
+-- ============================================================================
+-- LESSON 6: LIKE and Pattern Matching
+-- ============================================================================
+-- The LIKE operator allows you to search for patterns in text data.
+-- This is incredibly useful when you don't know the exact value or want to
+-- find multiple records that share similar characteristics.
+--
+-- Two wildcards are used with LIKE:
+-- % (percent)     = Matches any sequence of characters (including zero characters)
+-- _ (underscore)  = Matches exactly ONE character
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: THE PERCENT (%) WILDCARD
+-- ----------------------------------------------------------------------------
+-- % matches zero or more characters of any kind
+
+
+-- Example 1: Find products with "Widget" anywhere in the name
+-- Search for any product containing the word "Widget"
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE product_name LIKE '%Widget%';
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1001       | Widget A            | Electronics | 29.99
+-- 1007       | Super Widget        | Electronics | 89.99
+-- 1015       | Widget Pro Max      | Electronics | 159.99
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+--
+-- Use case: Finding all widget products regardless of full name
+-- The % before and after means "anything-Widget-anything"
+
+
+-- Example 2: Find products that START with "Smart"
+-- Only matches names beginning with "Smart"
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE product_name LIKE 'Smart%';
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1008       | Smart Device        | Electronics | 249.99
+-- 1012       | Smart Sensor        | Electronics | 175.50
+-- 1018       | Smart Controller    | Electronics | 199.99
+--
+-- Use case: Finding products in the "Smart" product line
+-- Note: % only at the end means "starts with Smart, then anything"
+
+
+-- Example 3: Find products that END with "Kit"
+-- Only matches names ending with "Kit"
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE product_name LIKE '%Kit';
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1007       | Assembly Kit        | Electronics | 150.00
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+-- 1030       | Repair Kit          | Tools       | 89.99
+-- 1035       | Starter Kit         | Tools       | 125.00
+--
+-- Use case: Finding all product kits or bundles
+-- Note: % only at the beginning means "anything, then ends with Kit"
+
+
+-- Example 4: Find customers with email from Gmail
+-- Search for Gmail addresses
+
+SELECT customer_id, customer_name, email
+FROM customers
+WHERE email LIKE '%@gmail.com';
+
+-- Results:
+-- customer_id | customer_name    | email
+-- ------------|------------------|------------------------
+-- C123        | John Smith       | john.smith@gmail.com
+-- C456        | Sarah Johnson    | s.johnson@gmail.com
+-- C890        | Mike Williams    | mike.w@gmail.com
+--
+-- Use case: Segmenting customers by email provider
+-- Useful for marketing campaigns or communication preferences
+
+
+-- Example 5: Find orders with tracking numbers starting with "FX"
+-- FedEx tracking numbers typically start with FX
+
+SELECT order_id, tracking_number, carrier, delivery_date
+FROM shipments
+WHERE tracking_number LIKE 'FX%';
+
+-- Results:
+-- order_id | tracking_number | carrier | delivery_date
+-- ---------|-----------------|---------|---------------
+-- 5001     | FX123456789     | FedEx   | 2024-01-20
+-- 5009     | FX456789123     | FedEx   | 2024-01-23
+-- 5015     | FX987654321     | FedEx   | 2024-01-25
+--
+-- Use case: Filtering FedEx shipments by tracking number pattern
+
+
+-- Example 6: Find products containing "Pro" (professional line)
+-- Professional or premium products often have "Pro" in the name
+
+SELECT product_id, product_name, price, category
+FROM products
+WHERE product_name LIKE '%Pro%';
+
+-- Results:
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1015       | Widget Pro Max      | 159.99 | Electronics
+-- 1025       | Professional Set    | 299.99 | Tools
+-- 1032       | ProGrade Component  | 189.50 | Electronics
+--
+-- Use case: Finding premium product line for targeted marketing
+
+
+-- Example 7: Find suppliers from specific countries
+-- Search for suppliers with country names containing "United"
+
+SELECT supplier_id, supplier_name, country, contact_email
+FROM suppliers
+WHERE country LIKE '%United%';
+
+-- Results:
+-- supplier_id | supplier_name     | country        | contact_email
+-- ------------|-------------------|----------------|------------------
+-- 501         | ABC Manufacturing | United States  | sales@abc.com
+-- 505         | XYZ Industries    | United Kingdom | info@xyz.co.uk
+--
+-- Use case: Finding suppliers from US or UK for trade compliance
+
+
+-- Example 8: Search for products by partial name
+-- Customer service searching for a product they can't fully remember
+
+SELECT product_id, product_name, price
+FROM products
+WHERE product_name LIKE '%Gadget%' OR product_name LIKE '%Device%';
+
+-- Results:
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1002       | Gadget B            | 15.50
+-- 1008       | Smart Device        | 249.99
+-- 1020       | Premium Gadget      | 399.99
+-- 1028       | Portable Device     | 129.99
+--
+-- Use case: Flexible product search when exact name is unknown
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: THE UNDERSCORE (_) WILDCARD
+-- ----------------------------------------------------------------------------
+-- _ matches exactly ONE character (no more, no less)
+
+
+-- Example 9: Find SKUs with specific pattern
+-- SKU format: ABC-X-1234 where X is a single letter category code
+
+SELECT product_id, sku, product_name
+FROM products
+WHERE sku LIKE 'ABC-_-____';
+
+-- Results:
+-- product_id | sku         | product_name
+-- -----------|-------------|------------------
+-- 1001       | ABC-E-1234  | Widget A
+-- 1005       | ABC-T-5678  | Tool Set
+-- 1012       | ABC-M-9012  | Medical Supply
+--
+-- Explanation:
+-- ABC-_-____ means:
+-- - Starts with "ABC-"
+-- - Then ONE character (the category: E, T, M)
+-- - Then a hyphen "-"
+-- - Then FOUR digits
+--
+-- Use case: Finding products following specific SKU naming convention
+
+
+-- Example 10: Phone number pattern matching
+-- Find suppliers with phone numbers in format: 555-01XX
+
+SELECT supplier_id, supplier_name, phone
+FROM suppliers
+WHERE phone LIKE '555-01__';
+
+-- Results:
+-- supplier_id | supplier_name     | phone
+-- ------------|-------------------|----------
+-- 501         | ABC Manufacturing | 555-0101
+-- 502         | XYZ Components    | 555-0102
+-- 503         | Global Supply Co  | 555-0103
+--
+-- Each _ represents exactly one digit
+-- Use case: Finding suppliers with sequential phone numbers in same block
+
+
+-- Example 11: Product codes with year embedded
+-- Find products manufactured in 202X (2020-2029)
+
+SELECT product_id, product_code, product_name
+FROM products
+WHERE product_code LIKE 'PROD-202_-%';
+
+-- Results:
+-- product_id | product_code    | product_name
+-- -----------|-----------------|------------------
+-- 1015       | PROD-2020-A123  | Widget Pro Max
+-- 1018       | PROD-2021-B456  | Smart Controller
+-- 1022       | PROD-2023-C789  | Medical Supply
+-- 1025       | PROD-2024-D012  | Professional Set
+--
+-- PROD-202_-% means:
+-- - "PROD-202" then ONE digit (0-9) then "-" then anything
+-- Use case: Finding products from specific decade
+
+
+-- Example 12: Batch numbers with specific format
+-- Batch format: BATCH-20XX-YYY (year and sequence)
+
+SELECT batch_number, product_id, manufacture_date
+FROM batches
+WHERE batch_number LIKE 'BATCH-20__-___';
+
+-- Results:
+-- batch_number    | product_id | manufacture_date
+-- ----------------|------------|------------------
+-- BATCH-2024-001  | 1001       | 2024-01-05
+-- BATCH-2024-002  | 1003       | 2024-01-08
+-- BATCH-2023-156  | 1007       | 2023-12-20
+--
+-- Use case: Quality control tracking with standardized batch codes
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: COMBINING % AND _
+-- ----------------------------------------------------------------------------
+
+-- Example 13: Complex SKU pattern
+-- Format: XXX-Y-####-Z where X=letters, Y=single letter, #=digits, Z=letter
+
+SELECT product_id, sku, product_name, category
+FROM products
+WHERE sku LIKE '___-_-____-_';
+
+-- Results:
+-- product_id | sku           | product_name    | category
+-- -----------|---------------|-----------------|----------
+-- 1001       | WID-A-1234-E  | Widget A        | Electronics
+-- 1005       | TOL-B-5678-T  | Tool Set        | Tools
+-- 1012       | MED-C-9012-M  | Medical Supply  | Medical
+--
+-- Pattern breakdown:
+-- ___ = exactly 3 characters
+-- - = literal hyphen
+-- _ = exactly 1 character
+-- - = literal hyphen
+-- ____ = exactly 4 characters
+-- - = literal hyphen
+-- _ = exactly 1 character
+
+
+-- Example 14: Partial order ID search
+-- Order IDs like: ORD-2024-XXXXX (year with 5-digit sequence)
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_id LIKE 'ORD-2024-_____';
+
+-- Results:
+-- order_id         | customer_id | order_date  | total
+-- -----------------|-------------|-------------|--------
+-- ORD-2024-00001   | C123        | 2024-01-15  | 450.00
+-- ORD-2024-00023   | C456        | 2024-01-16  | 230.50
+-- ORD-2024-00156   | C789        | 2024-01-18  | 1200.00
+--
+-- Use case: Finding all 2024 orders with exact ID format
+
+
+-- Example 15: Email validation pattern
+-- Ensure emails have @ symbol with characters before and after
+
+SELECT customer_id, customer_name, email
+FROM customers
+WHERE email LIKE '_%@_%._%';
+
+-- Pattern breakdown:
+-- _% = at least 1 character before @
+-- @ = literal @ symbol
+-- _% = at least 1 character after @
+-- . = literal dot
+-- _% = at least 1 character after dot (domain extension)
+--
+-- Results: All valid email formats
+-- Use case: Basic email format validation
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: NOT LIKE (Excluding Patterns)
+-- ----------------------------------------------------------------------------
+
+-- Example 16: Find products NOT containing "Mini" or "Micro"
+-- Exclude smaller versions of products
+
+SELECT product_id, product_name, price
+FROM products
+WHERE product_name NOT LIKE '%Mini%'
+  AND product_name NOT LIKE '%Micro%';
+
+-- Results: All products except Mini/Micro versions
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1001       | Widget A            | 29.99
+-- 1008       | Smart Device        | 249.99
+-- 1015       | Widget Pro Max      | 159.99
+--
+-- Use case: Filtering out smaller product variants
+
+
+-- Example 17: Exclude test or demo orders
+-- Find real orders (not test orders)
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_id NOT LIKE '%TEST%'
+  AND order_id NOT LIKE '%DEMO%';
+
+-- Results: Only production orders
+-- Use case: Production reporting excluding test data
+
+
+-- Example 18: Exclude specific suppliers by name pattern
+-- Avoid suppliers with "Discount" or "Budget" in name
+
+SELECT supplier_id, supplier_name, country, rating
+FROM suppliers
+WHERE supplier_name NOT LIKE '%Discount%'
+  AND supplier_name NOT LIKE '%Budget%';
+
+-- Results: Premium or standard suppliers only
+-- Use case: Quality-focused supplier selection
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: CASE SENSITIVITY
+-- ----------------------------------------------------------------------------
+-- IMPORTANT: LIKE behavior varies by database system!
+
+-- Example 19: Case-insensitive search (most SQL databases default)
+
+SELECT product_id, product_name
+FROM products
+WHERE product_name LIKE '%widget%';
+
+-- In most databases (MySQL, SQL Server, PostgreSQL with default settings):
+-- This will match: "Widget", "WIDGET", "widget", "WiDgEt"
+--
+-- Results:
+-- product_id | product_name
+-- -----------|-----------------
+-- 1001       | Widget A
+-- 1007       | Super Widget
+-- 1015       | WIDGET Pro Max
+
+
+-- Example 20: Case-sensitive search (when needed)
+-- Some databases or collations are case-sensitive
+-- PostgreSQL example:
+
+SELECT product_id, product_name
+FROM products
+WHERE product_name LIKE '%Widget%';  -- Matches only "Widget" not "WIDGET"
+
+-- OR force case-sensitivity:
+SELECT product_id, product_name
+FROM products
+WHERE product_name LIKE BINARY '%Widget%';  -- MySQL syntax
+
+-- Use case: Strict pattern matching for standardized naming conventions
+
+
+-- ----------------------------------------------------------------------------
+-- PART 6: COMBINING LIKE WITH OTHER CONDITIONS
+-- ----------------------------------------------------------------------------
+
+-- Example 21: Search with price filter
+-- Find "Pro" products under $200
+
+SELECT product_id, product_name, price, category
+FROM products
+WHERE product_name LIKE '%Pro%'
+  AND price < 200;
+
+-- Results:
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1015       | Widget Pro Max      | 159.99 | Electronics
+-- 1032       | ProGrade Component  | 189.50 | Electronics
+--
+-- Use case: Premium products within budget range
+
+
+-- Example 22: Category and name pattern
+-- Find Electronics products with "Smart" in the name
+
+SELECT product_id, product_name, price, category
+FROM products
+WHERE category = 'Electronics'
+  AND product_name LIKE '%Smart%';
+
+-- Results:
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1008       | Smart Device        | 249.99 | Electronics
+-- 1012       | Smart Sensor        | 175.50 | Electronics
+-- 1018       | Smart Controller    | 199.99 | Electronics
+--
+-- Use case: Category-specific product line search
+
+
+-- Example 23: Multiple pattern search with OR
+-- Find products with "Widget" OR "Gadget" OR "Device"
+
+SELECT product_id, product_name, price
+FROM products
+WHERE product_name LIKE '%Widget%'
+   OR product_name LIKE '%Gadget%'
+   OR product_name LIKE '%Device%';
+
+-- Results:
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1001       | Widget A            | 29.99
+-- 1002       | Gadget B            | 15.50
+-- 1007       | Super Widget        | 89.99
+-- 1008       | Smart Device        | 249.99
+--
+-- Use case: Broad product family search
+
+
+-- Example 24: Supplier search with multiple criteria
+-- Find US suppliers with "Manufacturing" in name
+
+SELECT supplier_id, supplier_name, country, contact_email
+FROM suppliers
+WHERE country LIKE '%United States%'
+  AND supplier_name LIKE '%Manufacturing%';
+
+-- Results:
+-- supplier_id | supplier_name     | country       | contact_email
+-- ------------|-------------------|---------------|------------------
+-- 501         | ABC Manufacturing | United States | sales@abc.com
+-- 507         | XYZ Manufacturing | United States | contact@xyz.com
+--
+-- Use case: Domestic manufacturing partner search
+
+
+-- Example 25: Date-based order search with customer pattern
+-- Find January orders from customers with "Corp" in name
+
+SELECT o.order_id, c.customer_name, o.order_date, o.total
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE c.customer_name LIKE '%Corp%'
+  AND o.order_date BETWEEN '2024-01-01' AND '2024-01-31';
+
+-- Results:
+-- order_id | customer_name    | order_date  | total
+-- ---------|------------------|-------------|--------
+-- 5003     | TechCorp Inc     | 2024-01-16  | 1200.00
+-- 5008     | GlobalCorp Ltd   | 2024-01-20  | 2500.00
+--
+-- Use case: Corporate customer analysis for specific period
+
+
+-- ----------------------------------------------------------------------------
+-- PART 7: REAL-WORLD SUPPLY CHAIN SCENARIOS
+-- ----------------------------------------------------------------------------
+
+-- Scenario 1: Find all "safety" related products
+-- Safety equipment for warehouse operations
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE product_name LIKE '%Safety%'
+   OR product_name LIKE '%Protection%'
+   OR product_name LIKE '%Guard%';
+
+-- Use case: Safety equipment inventory audit
+
+
+-- Scenario 2: Find shipments to California
+-- Tracking numbers or addresses containing CA
+
+SELECT shipment_id, order_id, destination_address, carrier
+FROM shipments
+WHERE destination_address LIKE '%CA%'
+   OR destination_address LIKE '%California%';
+
+-- Use case: State-specific shipping analysis
+
+
+-- Scenario 3: Product recall search
+-- Find products from specific batch codes
+
+SELECT product_id, product_name, batch_number, manufacture_date
+FROM products
+WHERE batch_number LIKE 'RECALL-2023-%';
+
+-- Use case: Quality control and product recall management
+
+
+-- Scenario 4: Warehouse location search
+-- Find warehouses in specific regions
+
+SELECT warehouse_id, warehouse_name, city, state
+FROM warehouses
+WHERE city LIKE 'New%'  -- New York, New Jersey, Newark, etc.
+   OR city LIKE 'San%';  -- San Francisco, San Diego, San Jose, etc.
+
+-- Use case: Regional distribution center analysis
+
+
+-- Scenario 5: Promotional SKU identification
+-- Find products with promo codes in SKU
+
+SELECT product_id, sku, product_name, price
+FROM products
+WHERE sku LIKE '%PROMO%'
+   OR sku LIKE '%SALE%'
+   OR sku LIKE '%SPECIAL%';
+
+-- Use case: Promotional inventory tracking
+
+
+-- Scenario 6: Customer name search
+-- Customer service looking up customer by partial name
+
+SELECT customer_id, customer_name, email, phone
+FROM customers
+WHERE customer_name LIKE '%Smith%';
+
+-- Results: All customers with "Smith" anywhere in their name
+-- John Smith, Sarah Smith, Smithson Corp, etc.
+-- Use case: Customer lookup with incomplete information
+
+
+-- Scenario 7: Serial number tracking
+-- Find products with serial numbers from specific production run
+
+SELECT product_id, serial_number, product_name, manufacture_date
+FROM inventory
+WHERE serial_number LIKE 'SN-2024-01-_____';
+
+-- Format: SN-YYYY-MM-XXXXX (year-month-sequence)
+-- Use case: Quality control for specific production month
+
+
+-- Scenario 8: Supplier contact information search
+-- Find suppliers with specific area codes
+
+SELECT supplier_id, supplier_name, phone, contact_email
+FROM suppliers
+WHERE phone LIKE '555-%'  -- All 555 area code
+   OR phone LIKE '212-%'; -- New York City area code
+
+-- Use case: Geographic supplier distribution analysis
+
+
+-- ============================================================================
+-- PATTERN MATCHING SUMMARY
+-- ============================================================================
+
+-- WILDCARD REFERENCE:
+-- %  = Zero or more characters (any length)
+-- _  = Exactly one character
+
+-- COMMON PATTERNS:
+-- '%text%'     = Contains "text" anywhere
+-- 'text%'      = Starts with "text"
+-- '%text'      = Ends with "text"
+-- '_text'      = Exactly one char, then "text"
+-- 'text_'      = "text", then exactly one char
+-- '____'       = Exactly 4 characters
+-- '%@%._%'     = Basic email pattern
+
+
+-- ============================================================================
+-- PERFORMANCE CONSIDERATIONS
+-- ============================================================================
+
+-- SLOWER queries (can't use indexes efficiently):
+WHERE product_name LIKE '%Widget%'  -- % at beginning prevents index use
+WHERE sku LIKE '%1234%'             -- Searching middle of string
+
+-- FASTER queries (can use indexes):
+WHERE product_name LIKE 'Widget%'   -- Starting pattern can use index
+WHERE sku LIKE 'ABC-%'              -- Known prefix allows index usage
+
+-- TIP: If possible, put known text at the START of the pattern for better performance
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting the % wildcard
+-- SELECT * FROM products WHERE product_name LIKE 'Widget';
+-- This only finds EXACT match "Widget", not "Super Widget"
+
+-- CORRECT: Use % for partial matching
+SELECT * FROM products WHERE product_name LIKE '%Widget%';
+
+
+-- WRONG: Using = instead of LIKE
+-- SELECT * FROM products WHERE product_name = '%Widget%';
+-- The = looks for literal string "%Widget%"
+
+-- CORRECT: Use LIKE for pattern matching
+SELECT * FROM products WHERE product_name LIKE '%Widget%';
+
+
+-- WRONG: Confusing % and _
+-- SELECT * FROM products WHERE sku LIKE 'ABC-%-1234';
+-- % matches "anything", even empty string or many characters
+
+-- CORRECT: Use _ for exact single character
+SELECT * FROM products WHERE sku LIKE 'ABC-_-1234';
+
+
+-- WRONG: Not considering case sensitivity
+-- SELECT * FROM products WHERE product_name LIKE '%WIDGET%';
+-- Might not match "Widget" or "widget" depending on database
+
+-- CORRECT: Use consistent casing or database-specific functions
+SELECT * FROM products WHERE UPPER(product_name) LIKE '%WIDGET%';
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Find all products with "Kit" in the name
+-- SELECT product_id, product_name FROM products WHERE product_name LIKE '%Kit%';
+
+
+-- Exercise 2: Find suppliers with ".com" email addresses
+-- SELECT supplier_id, supplier_name, contact_email 
+-- FROM suppliers WHERE contact_email LIKE '%.com';
+
+
+-- Exercise 3: Find orders with order IDs starting with "ORD-2024"
+-- SELECT order_id, customer_id, order_date 
+-- FROM orders WHERE order_id LIKE 'ORD-2024%';
+
+
+-- Exercise 4: Find products with SKUs in format "XXX-####" (3 letters, dash, 4 digits)
+-- SELECT product_id, sku, product_name 
+-- FROM products WHERE sku LIKE '___-____';
+
+
+-- Exercise 5: Find customers whose names start with 'A', 'B', or 'C'
+-- SELECT customer_id, customer_name 
+-- FROM customers 
+-- WHERE customer_name LIKE 'A%' OR customer_name LIKE 'B%' OR customer_name LIKE 'C%';
+
+
+-- Exercise 6: Find products NOT containing "Mini" or "Small"
+-- SELECT product_id, product_name, price 
+-- FROM products 
+-- WHERE product_name NOT LIKE '%Mini%' AND product_name NOT LIKE '%Small%';
+
+
+-- Exercise 7: Find warehouses in cities containing "Port" (Portland, Portsmouth, etc.)
+-- SELECT warehouse_id, warehouse_name, city 
+-- FROM warehouses WHERE city LIKE '%Port%';
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - IS NULL and IS NOT NULL operators
+-- - Handling missing or unknown data
+-- - Finding incomplete records in your supply chain database
+-- - Example: WHERE supplier_contact IS NULL
+-- - Example: WHERE tracking_number IS NOT NULL
+-- ============================================================================
