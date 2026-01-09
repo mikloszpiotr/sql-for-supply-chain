@@ -1,0 +1,662 @@
+-- ============================================================================
+-- LESSON 5: IN and BETWEEN Operators
+-- ============================================================================
+-- These operators make your queries cleaner and more readable when dealing with:
+-- - Multiple specific values (IN operator)
+-- - Ranges of values (BETWEEN operator)
+--
+-- They're shortcuts that replace longer AND/OR conditions
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: THE IN OPERATOR
+-- ----------------------------------------------------------------------------
+-- IN checks if a value matches ANY value in a list
+-- Much cleaner than writing multiple OR conditions
+
+
+-- Example 1: Select inventory from multiple warehouses (LONG WAY)
+-- The old way using OR (still works, but verbose):
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id = 'WH01' 
+   OR warehouse_id = 'WH02' 
+   OR warehouse_id = 'WH03';
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1003       | 15       | WH01
+-- 1004       | 245      | WH03
+-- 1005       | 67       | WH02
+
+
+-- Example 2: Same query using IN (BETTER WAY)
+-- Much cleaner and easier to read:
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id IN ('WH01', 'WH02', 'WH03');
+
+-- Results: EXACTLY THE SAME as above
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1003       | 15       | WH01
+-- 1004       | 245      | WH03
+-- 1005       | 67       | WH02
+--
+-- Use case: Regional inventory report for East Coast distribution centers
+-- Much easier to read and maintain!
+
+
+-- Example 3: Multiple order statuses
+-- Find orders that are Pending, Processing, or Shipped
+
+SELECT order_id, customer_id, status, order_date
+FROM orders
+WHERE status IN ('Pending', 'Processing', 'Shipped');
+
+-- Results:
+-- order_id | customer_id | status      | order_date
+-- ---------|-------------|-------------|------------
+-- 5002     | C456        | Pending     | 2024-01-16
+-- 5006     | C789        | Processing  | 2024-01-18
+-- 5009     | C345        | Processing  | 2024-01-19
+-- 5010     | C234        | Shipped     | 2024-01-20
+-- 5011     | C678        | Pending     | 2024-01-20
+--
+-- Use case: Finding all active orders (not yet delivered or cancelled)
+-- Shows all orders still in the fulfillment pipeline
+
+
+-- Example 4: Specific product categories
+-- Get products in Electronics, Tools, or Medical categories
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category IN ('Electronics', 'Tools', 'Medical');
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1001       | Widget A            | Electronics | 29.99
+-- 1002       | Gadget B            | Tools       | 15.50
+-- 1003       | Component C         | Electronics | 99.99
+-- 1004       | Tool Set D          | Tools       | 125.00
+-- 1022       | Medical Supply      | Medical     | 45.00
+--
+-- Use case: Product catalog for specific departments or promotions
+
+
+-- Example 5: VIP customer orders
+-- Find orders from your top 5 customers
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE customer_id IN ('C123', 'C456', 'C789', 'C234', 'C890');
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5001     | C123        | 2024-01-15  | 450.00
+-- 5002     | C456        | 2024-01-16  | 230.50
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5005     | C234        | 2024-01-17  | 567.89
+-- 5008     | C123        | 2024-01-20  | 2500.00
+--
+-- Use case: VIP customer analysis or special customer service tracking
+
+
+-- Example 6: Specific suppliers for quality audit
+-- Get all products from suppliers under review
+
+SELECT product_id, product_name, supplier_id, price
+FROM products
+WHERE supplier_id IN (501, 502, 505);
+
+-- Results:
+-- product_id | product_name    | supplier_id | price
+-- -----------|-----------------|-------------|-------
+-- 1001       | Widget A        | 501         | 29.99
+-- 1002       | Gadget B        | 502         | 15.50
+-- 1003       | Component C     | 501         | 99.99
+-- 1005       | Tool Set        | 502         | 125.00
+-- 1018       | Assembly Part   | 505         | 67.50
+--
+-- Use case: Quality audit or supplier performance review
+-- Note: Numbers in IN don't need quotes
+
+
+-- Example 7: Specific carriers for shipment analysis
+-- Track shipments sent via preferred carriers
+
+SELECT order_id, carrier, tracking_number, delivery_date
+FROM shipments
+WHERE carrier IN ('FedEx', 'UPS', 'DHL');
+
+-- Results:
+-- order_id | carrier | tracking_number | delivery_date
+-- ---------|---------|-----------------|---------------
+-- 5001     | FedEx   | FX123456789     | 2024-01-20
+-- 5003     | UPS     | 1Z999AA1234     | 2024-01-21
+-- 5007     | DHL     | DH987654321     | 2024-01-22
+-- 5009     | FedEx   | FX456789123     | 2024-01-23
+--
+-- Use case: Carrier performance comparison for premium shipping partners
+
+
+-- Example 8: Specific products for promotion
+-- Find specific product IDs for a targeted promotion
+
+SELECT product_id, product_name, price, category
+FROM products
+WHERE product_id IN (1001, 1003, 1008, 1012, 1020);
+
+-- Results:
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1001       | Widget A            | 29.99  | Electronics
+-- 1003       | Component C         | 99.99  | Electronics
+-- 1008       | Smart Device        | 249.99 | Electronics
+-- 1012       | Circuit Board       | 175.50 | Electronics
+-- 1020       | Premium Gadget      | 399.99 | Electronics
+--
+-- Use case: Creating targeted promotion for specific products
+
+
+-- ----------------------------------------------------------------------------
+-- NOT IN - The Opposite of IN
+-- ----------------------------------------------------------------------------
+
+-- Example 9: Exclude specific warehouses from report
+-- Get inventory from all warehouses EXCEPT WH04 and WH05
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id NOT IN ('WH04', 'WH05');
+
+-- Results (shows all warehouses except WH04 and WH05):
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1003       | 15       | WH01
+-- 1006       | 180      | WH03
+--
+-- Use case: Excluding closed or maintenance warehouses from reports
+
+
+-- Example 10: Exclude completed orders
+-- Find orders that are NOT delivered or cancelled
+
+SELECT order_id, customer_id, status, order_date
+FROM orders
+WHERE status NOT IN ('Delivered', 'Cancelled');
+
+-- Results:
+-- order_id | customer_id | status      | order_date
+-- ---------|-------------|-------------|------------
+-- 5002     | C456        | Pending     | 2024-01-16
+-- 5006     | C789        | Processing  | 2024-01-18
+-- 5009     | C345        | Processing  | 2024-01-19
+-- 5010     | C234        | Shipped     | 2024-01-20
+--
+-- Use case: Finding active orders that need attention
+-- All orders still in the fulfillment process
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: THE BETWEEN OPERATOR
+-- ----------------------------------------------------------------------------
+-- BETWEEN checks if a value falls within a range (inclusive)
+-- Works with numbers, dates, and even text
+
+
+-- Example 11: Price range (LONG WAY using AND)
+-- The old way using >= and <=:
+
+SELECT product_id, product_name, price
+FROM products
+WHERE price >= 50 AND price <= 150;
+
+-- Results:
+-- product_id | product_name    | price
+-- -----------|-----------------|-------
+-- 1003       | Component C     | 99.99
+-- 1004       | Tool Set D      | 125.00
+-- 1007       | Assembly Kit    | 150.00
+-- 1015       | Premium Part    | 75.50
+
+
+-- Example 12: Same query using BETWEEN (BETTER WAY)
+-- Much cleaner and more intuitive:
+
+SELECT product_id, product_name, price
+FROM products
+WHERE price BETWEEN 50 AND 150;
+
+-- Results: EXACTLY THE SAME as above
+-- product_id | product_name    | price
+-- -----------|-----------------|-------
+-- 1003       | Component C     | 99.99
+-- 1004       | Tool Set D      | 125.00
+-- 1007       | Assembly Kit    | 150.00
+-- 1015       | Premium Part    | 75.50
+--
+-- Use case: Mid-range product catalog
+-- Note: BETWEEN is INCLUSIVE - includes both 50 and 150
+-- IMPORTANT: Always use smaller value first, then larger value
+
+
+-- Example 13: Order value ranges
+-- Find medium-value orders between $200 and $1000
+
+SELECT order_id, customer_id, total, status
+FROM orders
+WHERE total BETWEEN 200 AND 1000;
+
+-- Results:
+-- order_id | customer_id | total  | status
+-- ---------|-------------|--------|----------
+-- 5001     | C123        | 450.00 | Delivered
+-- 5002     | C456        | 230.50 | Pending
+-- 5005     | C234        | 567.89 | Shipped
+-- 5013     | C456        | 340.00 | Processing
+--
+-- Use case: Standard order processing workflow
+-- Excludes very small orders (<$200) and large orders (>$1000)
+
+
+-- Example 14: Stock level ranges
+-- Find products with moderate inventory (50 to 200 units)
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity BETWEEN 50 AND 200;
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1005       | 67       | WH02
+-- 1006       | 180      | WH03
+-- 1011       | 156      | WH03
+--
+-- Use case: Products with healthy but not excessive stock levels
+-- Not too low (< 50) and not overstocked (> 200)
+
+
+-- Example 15: Date ranges for orders
+-- Find all orders placed in a specific week
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_date BETWEEN '2024-01-15' AND '2024-01-21';
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5001     | C123        | 2024-01-15  | 450.00
+-- 5002     | C456        | 2024-01-16  | 230.50
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5004     | C123        | 2024-01-17  | 89.99
+-- 5008     | C123        | 2024-01-20  | 2500.00
+-- 5010     | C234        | 2024-01-20  | 450.00
+-- 5011     | C678        | 2024-01-21  | 1200.00
+--
+-- Use case: Weekly sales report
+-- Note: Dates must be in 'YYYY-MM-DD' format
+-- BETWEEN with dates is INCLUSIVE of both start and end dates
+
+
+-- Example 16: Monthly date range
+-- Find orders placed in January 2024
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_date BETWEEN '2024-01-01' AND '2024-01-31';
+
+-- Results: All January orders
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5001     | C123        | 2024-01-15  | 450.00
+-- 5002     | C456        | 2024-01-16  | 230.50
+-- ... (all January orders)
+--
+-- Use case: Monthly sales reporting and analysis
+
+
+-- Example 17: Shipment delivery timeframe
+-- Find shipments delivered within a specific date range
+
+SELECT order_id, carrier, ship_date, delivery_date
+FROM shipments
+WHERE delivery_date BETWEEN '2024-01-20' AND '2024-01-25';
+
+-- Results:
+-- order_id | carrier | ship_date   | delivery_date
+-- ---------|---------|-------------|---------------
+-- 5001     | FedEx   | 2024-01-17  | 2024-01-20
+-- 5003     | UPS     | 2024-01-18  | 2024-01-21
+-- 5007     | DHL     | 2024-01-19  | 2024-01-22
+-- 5009     | FedEx   | 2024-01-20  | 2024-01-23
+-- 5012     | USPS    | 2024-01-21  | 2024-01-25
+--
+-- Use case: Delivery performance tracking for specific time period
+
+
+-- ----------------------------------------------------------------------------
+-- NOT BETWEEN - The Opposite of BETWEEN
+-- ----------------------------------------------------------------------------
+
+-- Example 18: Exclude mid-range prices
+-- Find products that are either cheap (<$50) or expensive (>$150)
+
+SELECT product_id, product_name, price
+FROM products
+WHERE price NOT BETWEEN 50 AND 150;
+
+-- Results:
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1001       | Widget A            | 29.99
+-- 1002       | Gadget B            | 15.50
+-- 1005       | Part E              | 8.75
+-- 1008       | Smart Device        | 249.99
+-- 1020       | Premium Gadget      | 399.99
+--
+-- Use case: Budget items and premium items, excluding mid-range
+
+
+-- Example 19: Exclude normal working hours for order analysis
+-- Find orders placed outside business hours (before 9 AM or after 5 PM)
+-- Note: This assumes you have an order_time column
+
+SELECT order_id, customer_id, order_date, order_time
+FROM orders
+WHERE order_time NOT BETWEEN '09:00:00' AND '17:00:00';
+
+-- Results: Orders placed early morning or evening
+-- Use case: After-hours order pattern analysis
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: COMBINING IN and BETWEEN
+-- ----------------------------------------------------------------------------
+
+-- Example 20: Specific warehouses with quantity range
+-- Find moderate stock (50-200 units) in East Coast warehouses
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id IN ('WH01', 'WH02', 'WH04')
+  AND quantity BETWEEN 50 AND 200;
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1005       | 67       | WH02
+-- 1009       | 175      | WH04
+--
+-- Use case: Regional inventory optimization
+-- Only East Coast warehouses with healthy stock levels
+
+
+-- Example 21: Multiple categories with price range
+-- Find Electronics or Tools products priced between $20 and $100
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category IN ('Electronics', 'Tools')
+  AND price BETWEEN 20 AND 100;
+
+-- Results:
+-- product_id | product_name    | category    | price
+-- -----------|-----------------|-------------|-------
+-- 1001       | Widget A        | Electronics | 29.99
+-- 1003       | Component C     | Electronics | 99.99
+-- 1006       | Wrench Set      | Tools       | 45.50
+-- 1010       | Drill Bit Set   | Tools       | 67.99
+--
+-- Use case: Mid-priced product promotion for specific categories
+
+
+-- Example 22: VIP customers with specific order value range
+-- Find orders from top customers with values between $500 and $2000
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE customer_id IN ('C123', 'C456', 'C789')
+  AND total BETWEEN 500 AND 2000;
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5001     | C123        | 2024-01-15  | 450.00
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5005     | C456        | 2024-01-18  | 875.50
+--
+-- Use case: Premium order tracking for VIP customers
+
+
+-- Example 23: Recent orders from specific regions
+-- Find orders from specific warehouses in the last week
+
+SELECT o.order_id, o.customer_id, o.order_date, o.total, s.warehouse_id
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+WHERE s.warehouse_id IN ('WH01', 'WH02', 'WH03')
+  AND o.order_date BETWEEN '2024-01-15' AND '2024-01-21';
+
+-- Use case: Regional sales performance analysis for specific time period
+
+
+-- Example 24: Preferred suppliers with specific price range
+-- Find products from top suppliers priced between $50 and $200
+
+SELECT product_id, product_name, price, supplier_id
+FROM products
+WHERE supplier_id IN (501, 502, 503)
+  AND price BETWEEN 50 AND 200;
+
+-- Results:
+-- product_id | product_name    | price  | supplier_id
+-- -----------|-----------------|--------|------------
+-- 1003       | Component C     | 99.99  | 501
+-- 1004       | Tool Set D      | 125.00 | 503
+-- 1007       | Assembly Kit    | 150.00 | 501
+-- 1013       | Premium Tool    | 89.50  | 502
+--
+-- Use case: Sourcing analysis for preferred vendors in target price range
+
+
+-- Example 25: Active orders in specific date range with status filter
+-- Find Pending or Processing orders from last 10 days
+
+SELECT order_id, customer_id, status, order_date, total
+FROM orders
+WHERE status IN ('Pending', 'Processing')
+  AND order_date BETWEEN '2024-01-12' AND '2024-01-21'
+  AND total BETWEEN 100 AND 5000;
+
+-- Results:
+-- order_id | customer_id | status      | order_date  | total
+-- ---------|-------------|-------------|-------------|--------
+-- 5002     | C456        | Pending     | 2024-01-16  | 230.50
+-- 5006     | C789        | Processing  | 2024-01-18  | 875.50
+-- 5009     | C345        | Processing  | 2024-01-19  | 450.00
+--
+-- Use case: Operations dashboard for active orders in normal value range
+
+
+-- ============================================================================
+-- IN vs BETWEEN: WHEN TO USE WHICH
+-- ============================================================================
+
+-- Use IN when:
+-- ✓ You have specific discrete values (not a range)
+-- ✓ Values are not consecutive
+-- ✓ Example: Specific warehouse IDs, customer IDs, status values
+
+-- Use BETWEEN when:
+-- ✓ You have a continuous range of values
+-- ✓ Works with numbers, dates, and sometimes text
+-- ✓ Example: Price ranges, date ranges, quantity ranges
+
+
+-- ============================================================================
+-- IMPORTANT NOTES ABOUT BETWEEN
+-- ============================================================================
+
+-- 1. BETWEEN is INCLUSIVE (includes both boundary values)
+WHERE price BETWEEN 50 AND 100  -- Includes 50 and 100
+
+-- 2. Order matters: Always put smaller value first
+WHERE price BETWEEN 50 AND 100  -- ✅ CORRECT
+WHERE price BETWEEN 100 AND 50  -- ❌ WRONG (returns no results!)
+
+-- 3. Works with dates (very common in supply chain)
+WHERE order_date BETWEEN '2024-01-01' AND '2024-01-31'
+
+-- 4. Can work with text (alphabetical order)
+WHERE product_name BETWEEN 'A' AND 'M'  -- Products starting with A through M
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting quotes around text in IN
+-- SELECT * FROM inventory WHERE warehouse_id IN (WH01, WH02);
+
+-- CORRECT: Text values need quotes
+SELECT * FROM inventory WHERE warehouse_id IN ('WH01', 'WH02');
+
+
+-- WRONG: Using quotes around numbers in IN (works but unnecessary)
+-- SELECT * FROM products WHERE supplier_id IN ('501', '502');
+
+-- CORRECT: Numbers don't need quotes
+SELECT * FROM products WHERE supplier_id IN (501, 502);
+
+
+-- WRONG: BETWEEN values in wrong order
+-- SELECT * FROM products WHERE price BETWEEN 150 AND 50;
+
+-- CORRECT: Smaller value first, larger value second
+SELECT * FROM products WHERE price BETWEEN 50 AND 150;
+
+
+-- WRONG: Thinking BETWEEN is exclusive
+-- SELECT * FROM products WHERE price BETWEEN 50 AND 100;
+-- This INCLUDES products priced at exactly 50 and exactly 100
+
+-- CORRECT: If you want exclusive, use > and 
+SELECT * FROM products WHERE price > 50 AND price < 100;
+
+
+-- WRONG: Missing quotes around dates
+-- SELECT * FROM orders WHERE order_date BETWEEN 2024-01-01 AND 2024-01-31;
+
+-- CORRECT: Dates need quotes
+SELECT * FROM orders WHERE order_date BETWEEN '2024-01-01' AND '2024-01-31';
+
+
+-- ============================================================================
+-- REAL-WORLD SUPPLY CHAIN SCENARIOS
+-- ============================================================================
+
+-- Scenario 1: Multi-warehouse inventory audit
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE warehouse_id IN ('WH01', 'WH02', 'WH03')
+  AND quantity BETWEEN 0 AND 50;
+-- Use case: Low stock alert across East Coast warehouses
+
+
+-- Scenario 2: Weekly sales analysis for specific categories
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category IN ('Electronics', 'Tools', 'Medical')
+  AND price BETWEEN 25 AND 200;
+-- Use case: Mid-range product performance tracking
+
+
+-- Scenario 3: Active order dashboard
+SELECT order_id, customer_id, status, total, order_date
+FROM orders
+WHERE status IN ('Pending', 'Processing', 'Shipped')
+  AND order_date BETWEEN '2024-01-01' AND '2024-01-31'
+  AND total BETWEEN 100 AND 10000;
+-- Use case: Operations monitoring for current month
+
+
+-- Scenario 4: Carrier performance comparison
+SELECT carrier, COUNT(*) as shipment_count, 
+       AVG(DATEDIFF(delivery_date, ship_date)) as avg_days
+FROM shipments
+WHERE carrier IN ('FedEx', 'UPS', 'DHL')
+  AND ship_date BETWEEN '2024-01-01' AND '2024-01-31'
+GROUP BY carrier;
+-- Use case: Monthly carrier performance review
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Find inventory in warehouses WH01, WH03, WH05 with quantity 10-100
+-- SELECT product_id, quantity, warehouse_id 
+-- FROM inventory 
+-- WHERE warehouse_id IN ('WH01', 'WH03', 'WH05') 
+--   AND quantity BETWEEN 10 AND 100;
+
+
+-- Exercise 2: Find orders from customers C123, C456, C789 placed in January 2024
+-- SELECT order_id, customer_id, order_date, total 
+-- FROM orders 
+-- WHERE customer_id IN ('C123', 'C456', 'C789') 
+--   AND order_date BETWEEN '2024-01-01' AND '2024-01-31';
+
+
+-- Exercise 3: Find Electronics or Tools products priced between $30 and $120
+-- SELECT product_id, product_name, category, price 
+-- FROM products 
+-- WHERE category IN ('Electronics', 'Tools') 
+--   AND price BETWEEN 30 AND 120;
+
+
+-- Exercise 4: Find Pending or Processing orders with total NOT between $50 and $500
+-- SELECT order_id, status, total 
+-- FROM orders 
+-- WHERE status IN ('Pending', 'Processing') 
+--   AND total NOT BETWEEN 50 AND 500;
+
+
+-- Exercise 5: Find products from suppliers 501, 502, 503, 504 NOT priced between $40-$80
+-- SELECT product_id, product_name, price, supplier_id 
+-- FROM products 
+-- WHERE supplier_id IN (501, 502, 503, 504) 
+--   AND price NOT BETWEEN 40 AND 80;
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - LIKE operator for pattern matching
+-- - Wildcards (% and _) for flexible text searches
+-- - Finding products by partial name or SKU patterns
+-- - Example: WHERE product_name LIKE '%Widget%'
+-- - Example: WHERE sku LIKE 'ABC-____-XYZ'
+-- ============================================================================
