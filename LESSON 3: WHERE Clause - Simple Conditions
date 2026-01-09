@@ -1,0 +1,475 @@
+-- ============================================================================
+-- LESSON 3: WHERE Clause - Simple Conditions
+-- ============================================================================
+-- The WHERE clause lets you FILTER rows based on specific conditions.
+-- Instead of getting ALL rows, you get only the rows that match your criteria.
+--
+-- Basic Structure:
+-- SELECT column1, column2
+-- FROM table_name
+-- WHERE condition;
+--
+-- Think of WHERE as asking: "Show me only the rows WHERE this is true"
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Filter by exact match (equality)
+-- ----------------------------------------------------------------------------
+-- Get inventory only from the New York warehouse
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id = 'WH01';
+
+-- Results (only rows where warehouse_id equals 'WH01'):
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1003       | 0        | WH01
+-- 1005       | 320      | WH01
+--
+-- Use case: Warehouse manager in NYC checking their local inventory
+-- Note: Text values (strings) must be in 'single quotes'
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Filter by greater than (>)
+-- ----------------------------------------------------------------------------
+-- Get only products that have stock (quantity greater than 0)
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity > 0;
+
+-- Results (only rows where quantity is more than 0):
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1004       | 245      | WH03
+-- 1005       | 67       | WH02
+--
+-- Use case: Finding all products that are actually in stock
+-- Note: This excludes out-of-stock items (quantity = 0)
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Filter by less than (<)
+-- ----------------------------------------------------------------------------
+-- Find products with low stock (less than 50 units)
+
+SELECT product_id, product_name, quantity
+FROM inventory
+WHERE quantity < 50;
+
+-- Results:
+-- product_id | product_name  | quantity
+-- -----------|---------------|----------
+-- 1003       | Component C   | 15
+-- 1007       | Widget X      | 8
+-- 1009       | Part Z        | 35
+-- 1012       | Tool Y        | 0
+--
+-- Use case: Identifying products that need reordering soon
+-- This helps prevent stockouts
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Filter by greater than or equal to (>=)
+-- ----------------------------------------------------------------------------
+-- Find products with adequate stock (100 units or more)
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity >= 100;
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1004       | 245      | WH03
+-- 1006       | 180      | WH02
+-- 1008       | 100      | WH01
+--
+-- Use case: Products with healthy stock levels
+-- Note: >= includes the exact value (100 is included)
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Filter by less than or equal to (<=)
+-- ----------------------------------------------------------------------------
+-- Find orders with small values ($100 or less)
+
+SELECT order_id, customer_id, total
+FROM orders
+WHERE total <= 100;
+
+-- Results:
+-- order_id | customer_id | total
+-- ---------|-------------|-------
+-- 5004     | C123        | 89.99
+-- 5007     | C890        | 45.50
+-- 5010     | C234        | 100.00
+-- 5015     | C567        | 75.25
+--
+-- Use case: Finding small orders for special handling or analysis
+-- Note: <= includes 100.00 (the boundary value)
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Filter by NOT equal to (!=  or  <>)
+-- ----------------------------------------------------------------------------
+-- Get all orders that are NOT delivered
+
+SELECT order_id, customer_id, status
+FROM orders
+WHERE status != 'Delivered';
+
+-- Alternative syntax (works the same):
+-- WHERE status <> 'Delivered';
+
+-- Results:
+-- order_id | customer_id | status
+-- ---------|-------------|----------
+-- 5002     | C456        | Pending
+-- 5006     | C789        | Shipped
+-- 5009     | C345        | Processing
+-- 5011     | C678        | Pending
+--
+-- Use case: Finding orders that still need attention
+-- Shows: Pending, Shipped, Processing, Cancelled - everything except Delivered
+
+
+-- ----------------------------------------------------------------------------
+-- Example 7: Filter products by category
+-- ----------------------------------------------------------------------------
+-- Get only electronics products
+
+SELECT product_id, product_name, price
+FROM products
+WHERE category = 'Electronics';
+
+-- Results:
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1001       | Widget A            | 29.99
+-- 1003       | Component C         | 99.99
+-- 1008       | Smart Device        | 249.99
+-- 1012       | Circuit Board       | 75.50
+--
+-- Use case: Category-specific product reports or analysis
+
+
+-- ----------------------------------------------------------------------------
+-- Example 8: Filter by specific supplier
+-- ----------------------------------------------------------------------------
+-- Get all products from supplier 501
+
+SELECT product_id, product_name, price, supplier_id
+FROM products
+WHERE supplier_id = 501;
+
+-- Results:
+-- product_id | product_name    | price  | supplier_id
+-- -----------|-----------------|--------|------------
+-- 1001       | Widget A        | 29.99  | 501
+-- 1003       | Component C     | 99.99  | 501
+-- 1007       | Assembly Kit    | 150.00 | 501
+--
+-- Use case: Supplier performance review or product sourcing analysis
+-- Note: Numbers don't need quotes (supplier_id = 501, not '501')
+
+
+-- ----------------------------------------------------------------------------
+-- Example 9: Filter orders by specific date
+-- ----------------------------------------------------------------------------
+-- Get all orders placed on January 16, 2024
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_date = '2024-01-16';
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5002     | C456        | 2024-01-16  | 230.50
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5005     | C234        | 2024-01-16  | 567.89
+--
+-- Use case: Daily sales report for specific date
+-- Note: Dates must be in quotes and formatted as 'YYYY-MM-DD'
+
+
+-- ----------------------------------------------------------------------------
+-- Example 10: Filter high-value orders
+-- ----------------------------------------------------------------------------
+-- Get orders over $1000 (large orders)
+
+SELECT order_id, customer_id, total, status
+FROM orders
+WHERE total > 1000;
+
+-- Results:
+-- order_id | customer_id | total   | status
+-- ---------|-------------|---------|----------
+-- 5003     | C789        | 1200.00 | Shipped
+-- 5008     | C123        | 2500.00 | Delivered
+-- 5012     | C890        | 1575.50 | Processing
+--
+-- Use case: VIP orders requiring special attention or approval
+
+
+-- ----------------------------------------------------------------------------
+-- Example 11: Find expensive products
+-- ----------------------------------------------------------------------------
+-- Get products priced above $100
+
+SELECT product_name, price, category
+FROM products
+WHERE price > 100;
+
+-- Results:
+-- product_name        | price  | category
+-- --------------------|--------|----------
+-- Tool Set D          | 125.00 | Tools
+-- Smart Device        | 249.99 | Electronics
+-- Assembly Kit        | 150.00 | Electronics
+--
+-- Use case: Premium product catalog or pricing analysis
+
+
+-- ----------------------------------------------------------------------------
+-- Example 12: Find out-of-stock items
+-- ----------------------------------------------------------------------------
+-- Critical! Find products with ZERO inventory
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+WHERE quantity = 0;
+
+-- Results:
+-- product_id | product_name  | quantity | warehouse_id
+-- -----------|---------------|----------|-------------
+-- 1003       | Component C   | 0        | WH01
+-- 1009       | Part Z        | 0        | WH03
+-- 1015       | Widget Q      | 0        | WH02
+--
+-- Use case: Urgent reorder list - these products need immediate attention!
+
+
+-- ----------------------------------------------------------------------------
+-- Example 13: Filter by customer
+-- ----------------------------------------------------------------------------
+-- Get all orders from a specific customer
+
+SELECT order_id, order_date, total, status
+FROM orders
+WHERE customer_id = 'C123';
+
+-- Results:
+-- order_id | order_date  | total   | status
+-- ---------|-------------|---------|----------
+-- 5001     | 2024-01-15  | 450.00  | Delivered
+-- 5004     | 2024-01-17  | 89.99   | Processing
+-- 5008     | 2024-01-20  | 2500.00 | Delivered
+--
+-- Use case: Customer service looking up a customer's order history
+
+
+-- ----------------------------------------------------------------------------
+-- Example 14: Filter by warehouse location
+-- ----------------------------------------------------------------------------
+-- Get all inventory in the Chicago warehouse
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE warehouse_id = 'WH03';
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1004       | 245      | WH03
+-- 1009       | 0        | WH03
+-- 1011       | 156      | WH03
+-- 1014       | 89       | WH03
+--
+-- Use case: Regional inventory report for Chicago distribution center
+
+
+-- ----------------------------------------------------------------------------
+-- Example 15: Filter by shipping carrier
+-- ----------------------------------------------------------------------------
+-- Get all shipments sent via FedEx
+
+SELECT order_id, tracking_number, ship_date, delivery_date
+FROM shipments
+WHERE carrier = 'FedEx';
+
+-- Results:
+-- order_id | tracking_number | ship_date   | delivery_date
+-- ---------|-----------------|-------------|---------------
+-- 5001     | FX123456789     | 2024-01-17  | 2024-01-20
+-- 5005     | FX987654321     | 2024-01-18  | 2024-01-21
+-- 5009     | FX456789123     | 2024-01-19  | 2024-01-22
+--
+-- Use case: Carrier performance analysis or tracking specific shipments
+
+
+-- ============================================================================
+-- COMPARISON OPERATORS SUMMARY
+-- ============================================================================
+-- =   Equal to                  WHERE quantity = 100
+-- >   Greater than              WHERE price > 50
+-- <   Less than                 WHERE quantity < 20
+-- >=  Greater than or equal     WHERE total >= 1000
+-- <=  Less than or equal        WHERE stock <= 10
+-- !=  Not equal to              WHERE status != 'Cancelled'
+-- <>  Not equal to (alternative) WHERE status <> 'Cancelled'
+
+
+-- ============================================================================
+-- DATA TYPE RULES
+-- ============================================================================
+
+-- TEXT/STRING values: Use single quotes
+WHERE warehouse_id = 'WH01'
+WHERE category = 'Electronics'
+WHERE status = 'Delivered'
+
+-- NUMBERS: No quotes needed
+WHERE quantity = 100
+WHERE price > 50.99
+WHERE supplier_id = 501
+
+-- DATES: Use single quotes in 'YYYY-MM-DD' format
+WHERE order_date = '2024-01-16'
+WHERE ship_date > '2024-01-01'
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting quotes around text values
+-- SELECT * FROM inventory WHERE warehouse_id = WH01;
+
+-- CORRECT: Text must be in quotes
+SELECT * FROM inventory WHERE warehouse_id = 'WH01';
+
+
+-- WRONG: Using quotes around numbers
+-- SELECT * FROM products WHERE price > '100';
+
+-- CORRECT: Numbers don't need quotes
+SELECT * FROM products WHERE price > 100;
+
+
+-- WRONG: Using double quotes for text values (may not work in all databases)
+-- SELECT * FROM orders WHERE status = "Delivered";
+
+-- CORRECT: Use single quotes for text
+SELECT * FROM orders WHERE status = 'Delivered';
+
+
+-- WRONG: Wrong date format
+-- SELECT * FROM orders WHERE order_date = '01/16/2024';
+
+-- CORRECT: Use YYYY-MM-DD format
+SELECT * FROM orders WHERE order_date = '2024-01-16';
+
+
+-- WRONG: Misspelling column names
+-- SELECT * FROM products WHERE prodcut_name = 'Widget A';
+
+-- CORRECT: Exact spelling matters
+SELECT * FROM products WHERE product_name = 'Widget A';
+
+
+-- WRONG: Case sensitivity issues (depends on database)
+-- SELECT * FROM products WHERE category = 'electronics';
+-- (If database stores it as 'Electronics', this might not match)
+
+-- CORRECT: Match the exact case stored in database
+SELECT * FROM products WHERE category = 'Electronics';
+
+
+-- ============================================================================
+-- REAL-WORLD SUPPLY CHAIN SCENARIOS
+-- ============================================================================
+
+-- Scenario 1: Emergency reorder - Find critically low stock (under 10 units)
+SELECT product_id, product_name, quantity
+FROM inventory
+WHERE quantity < 10;
+
+
+-- Scenario 2: Pending orders that need attention
+SELECT order_id, customer_id, order_date
+FROM orders
+WHERE status = 'Pending';
+
+
+-- Scenario 3: High-value orders requiring manager approval (over $5000)
+SELECT order_id, customer_id, total
+FROM orders
+WHERE total > 5000;
+
+
+-- Scenario 4: Products from a specific supplier for quality review
+SELECT product_id, product_name, price
+FROM products
+WHERE supplier_id = 502;
+
+
+-- Scenario 5: West Coast inventory check
+SELECT product_id, quantity
+FROM inventory
+WHERE warehouse_id = 'WH02';
+
+
+-- Scenario 6: Today's orders (replace date with actual current date)
+SELECT order_id, customer_id, total
+FROM orders
+WHERE order_date = '2024-01-16';
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Find all products in the 'Tools' category
+-- SELECT product_id, product_name FROM products WHERE category = 'Tools';
+
+-- Exercise 2: Find all orders with total less than $50
+-- SELECT order_id, total FROM orders WHERE total < 50;
+
+-- Exercise 3: Find inventory in warehouse 'WH01'
+-- SELECT product_id, quantity FROM inventory WHERE warehouse_id = 'WH01';
+
+-- Exercise 4: Find all delivered orders
+-- SELECT order_id, customer_id FROM orders WHERE status = 'Delivered';
+
+-- Exercise 5: Find products priced at exactly $29.99
+-- SELECT product_id, product_name, price FROM products WHERE price = 29.99;
+
+-- Exercise 6: Find out-of-stock items (quantity equals zero)
+-- SELECT product_id, warehouse_id FROM inventory WHERE quantity = 0;
+
+-- Exercise 7: Find orders NOT in 'Cancelled' status
+-- SELECT order_id, status FROM orders WHERE status != 'Cancelled';
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - WHERE with MULTIPLE conditions using AND and OR
+-- - Example: WHERE quantity > 0 AND warehouse_id = 'WH01'
+-- - Example: WHERE category = 'Electronics' OR category = 'Tools'
+-- 
+-- This lets you create more sophisticated filters like:
+-- - "Show low stock items in the NYC warehouse"
+-- - "Find orders that are either pending or processing"
+-- - "Get expensive electronics products"
+-- ============================================================================
