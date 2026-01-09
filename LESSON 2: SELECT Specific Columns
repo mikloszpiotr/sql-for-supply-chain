@@ -1,0 +1,379 @@
+-- ============================================================================
+-- LESSON 2: SELECT Specific Columns
+-- ============================================================================
+-- Instead of using SELECT * (which gets ALL columns), you can specify
+-- exactly which columns you want to retrieve.
+--
+-- Why select specific columns?
+-- 1. PERFORMANCE: Faster queries, less data transferred
+-- 2. CLARITY: Easier to read and understand results
+-- 3. EFFICIENCY: Only get the data you actually need
+-- 4. PROFESSIONALISM: Shows you know exactly what you're looking for
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Select a single column from inventory
+-- ----------------------------------------------------------------------------
+-- Get only the quantity for all inventory records
+
+SELECT quantity
+FROM inventory;
+
+-- Results will look like:
+-- quantity
+-- --------
+-- 150
+-- 89
+-- 0
+-- 245
+-- 67
+--
+-- Use case: Quick check of all stock levels without other details
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Select TWO specific columns from inventory
+-- ----------------------------------------------------------------------------
+-- Get product_id and quantity - the most essential inventory info
+
+SELECT product_id, quantity
+FROM inventory;
+
+-- Results:
+-- product_id | quantity
+-- -----------|---------
+-- 1001       | 150
+-- 1002       | 89
+-- 1003       | 0
+-- 1004       | 245
+-- 1005       | 67
+--
+-- Use case: Simple stock report showing what products and how many units
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Select THREE columns - adding location information
+-- ----------------------------------------------------------------------------
+-- Get product_id, quantity, and warehouse_id for complete stock picture
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory;
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1002       | 89       | WH02
+-- 1001       | 75       | WH02
+-- 1003       | 0        | WH01
+-- 1004       | 245      | WH03
+--
+-- Use case: Inventory report showing WHERE each product is located
+-- Notice: Same product (1001) can appear in multiple warehouses
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Select multiple columns from products table
+-- ----------------------------------------------------------------------------
+-- Get only the essential product information
+
+SELECT product_id, product_name, price
+FROM products;
+
+-- Results:
+-- product_id | product_name        | price
+-- -----------|---------------------|-------
+-- 1001       | Widget A            | 29.99
+-- 1002       | Gadget B            | 15.50
+-- 1003       | Component C         | 99.99
+-- 1004       | Tool Set D          | 125.00
+-- 1005       | Part E              | 8.75
+--
+-- Use case: Product catalog or price list
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Select relevant order information
+-- ----------------------------------------------------------------------------
+-- Get key order details without all the extra fields
+
+SELECT order_id, customer_id, order_date, total
+FROM orders;
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5001     | C123        | 2024-01-15  | 450.00
+-- 5002     | C456        | 2024-01-16  | 230.50
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5004     | C123        | 2024-01-17  | 89.99
+--
+-- Use case: Daily sales summary without shipping or status details
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Select supplier contact information
+-- ----------------------------------------------------------------------------
+-- Get only the fields needed to contact suppliers
+
+SELECT supplier_id, supplier_name, contact_email, phone
+FROM suppliers;
+
+-- Results:
+-- supplier_id | supplier_name     | contact_email        | phone
+-- ------------|-------------------|----------------------|---------------
+-- 501         | ABC Manufacturing | sales@abc.com        | 555-0101
+-- 502         | XYZ Components    | orders@xyz.com       | 555-0102
+-- 503         | Global Supply Co  | contact@global.com   | 555-0103
+--
+-- Use case: Supplier contact list for purchasing team
+
+
+-- ----------------------------------------------------------------------------
+-- Example 7: Warehouse location details
+-- ----------------------------------------------------------------------------
+-- Get warehouse identification and location
+
+SELECT warehouse_id, warehouse_name, city, state
+FROM warehouses;
+
+-- Results:
+-- warehouse_id | warehouse_name | city        | state
+-- -------------|----------------|-------------|-------
+-- WH01         | East Coast DC  | New York    | NY
+-- WH02         | West Coast DC  | Los Angeles | CA
+-- WH03         | Central DC     | Chicago     | IL
+-- WH04         | South DC       | Atlanta     | GA
+--
+-- Use case: Distribution center location reference
+
+
+-- ----------------------------------------------------------------------------
+-- Example 8: Shipment tracking essentials
+-- ----------------------------------------------------------------------------
+-- Get only the tracking information customers care about
+
+SELECT order_id, carrier, tracking_number, delivery_date
+FROM shipments;
+
+-- Results:
+-- order_id | carrier | tracking_number | delivery_date
+-- ---------|---------|-----------------|---------------
+-- 5001     | FedEx   | FX123456789     | 2024-01-20
+-- 5002     | UPS     | 1Z999AA1234     | 2024-01-21
+-- 5003     | USPS    | 9400111899223   | 2024-01-22
+--
+-- Use case: Customer service tracking lookup
+
+
+-- ----------------------------------------------------------------------------
+-- Example 9: Product category and pricing
+-- ----------------------------------------------------------------------------
+-- Focus on product classification and cost
+
+SELECT product_name, category, price, supplier_id
+FROM products;
+
+-- Results:
+-- product_name        | category    | price  | supplier_id
+-- --------------------|-------------|--------|------------
+-- Widget A            | Electronics | 29.99  | 501
+-- Gadget B            | Tools       | 15.50  | 502
+-- Component C         | Electronics | 99.99  | 501
+-- Tool Set D          | Tools       | 125.00 | 503
+--
+-- Use case: Category-based pricing analysis
+
+
+-- ----------------------------------------------------------------------------
+-- Example 10: Customer order history basics
+-- ----------------------------------------------------------------------------
+-- Essential order tracking for customer service
+
+SELECT customer_id, order_id, order_date, status
+FROM orders;
+
+-- Results:
+-- customer_id | order_id | order_date  | status
+-- ------------|----------|-------------|----------
+-- C123        | 5001     | 2024-01-15  | Delivered
+-- C456        | 5002     | 2024-01-16  | Pending
+-- C789        | 5003     | 2024-01-16  | Shipped
+-- C123        | 5004     | 2024-01-17  | Processing
+--
+-- Use case: Quick order status lookup
+
+
+-- ============================================================================
+-- COLUMN ORDER MATTERS
+-- ============================================================================
+-- The order you list columns determines the order they appear in results
+
+-- These two queries return the SAME data but in DIFFERENT order:
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory;
+-- Shows: product_id first, then quantity, then warehouse_id
+
+SELECT warehouse_id, product_id, quantity
+FROM inventory;
+-- Shows: warehouse_id first, then product_id, then quantity
+
+-- Choose the order that makes most sense for your use case!
+
+
+-- ============================================================================
+-- FORMATTING BEST PRACTICES
+-- ============================================================================
+
+-- Style 1: All on one line (good for simple queries with few columns)
+SELECT product_id, product_name, price FROM products;
+
+
+-- Style 2: Each column on its own line (better for many columns or readability)
+SELECT 
+    product_id,
+    product_name,
+    category,
+    price,
+    supplier_id
+FROM products;
+
+
+-- Style 3: Indented and organized (best for professional/team environments)
+SELECT 
+    order_id,
+    customer_id,
+    order_date,
+    status,
+    total
+FROM 
+    orders;
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+ 
+-- WRONG: Forgetting commas between column names
+-- SELECT product_id product_name price FROM products;
+
+-- CORRECT: Commas separate each column
+SELECT product_id, product_name, price FROM products;
+
+
+-- WRONG: Extra comma at the end
+-- SELECT product_id, product_name, price, FROM products;
+
+-- CORRECT: No comma after last column
+SELECT product_id, product_name, price FROM products;
+
+
+-- WRONG: Misspelled column name
+-- SELECT product_id, prodcut_name FROM products;  -- "prodcut" is wrong
+
+-- CORRECT: Exact column name spelling
+SELECT product_id, product_name FROM products;
+
+-- WRONG: Selecting a column that doesn't exist in the table
+-- SELECT product_id, color FROM products;  -- if "color" column doesn't exist
+
+-- CORRECT: Only select columns that exist in your table
+SELECT product_id, product_name FROM products;
+
+
+-- ============================================================================
+-- COMPARISON: SELECT * vs SELECT Specific Columns
+-- ============================================================================
+
+-- Using SELECT * (gets everything):
+SELECT * FROM products;
+-- Returns: product_id, product_name, category, price, supplier_id, 
+--          description, weight, dimensions, created_date, updated_date,
+--          discontinued, sku, barcode... (imagine 20+ columns!)
+
+
+-- Using specific columns (gets only what you need):
+SELECT product_id, product_name, price FROM products;
+-- Returns: Only 3 columns you actually need
+--
+-- Benefits:
+-- ✓ Faster query execution
+-- ✓ Less network traffic
+-- ✓ Easier to read results
+-- ✓ More professional code
+-- ✓ Reduces risk of exposing sensitive data
+
+
+-- ============================================================================
+-- REAL-WORLD SUPPLY CHAIN SCENARIOS
+-- ============================================================================
+
+-- Scenario 1: Warehouse manager needs daily stock check
+SELECT product_id, quantity, warehouse_id
+FROM inventory;
+
+
+-- Scenario 2: Purchasing team needs supplier contact list
+SELECT supplier_name, contact_email, phone
+FROM suppliers;
+
+
+-- Scenario 3: Sales team needs simple order summary
+SELECT order_id, customer_id, order_date, total
+FROM orders;
+
+
+-- Scenario 4: Logistics team needs shipment tracking info
+SELECT order_id, tracking_number, carrier, delivery_date
+FROM shipments;
+
+
+-- Scenario 5: Finance needs product pricing data
+SELECT product_id, product_name, price
+FROM products;
+
+
+-- Scenario 6: Customer service needs order status
+SELECT order_id, customer_id, status, order_date
+FROM orders;
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Get product ID and name only
+-- SELECT product_id, product_name FROM products;
+
+
+-- Exercise 2: Get order essentials (id, date, total)
+-- SELECT order_id, order_date, total FROM orders;
+
+
+-- Exercise 3: Get warehouse locations (id, name, city)
+-- SELECT warehouse_id, warehouse_name, city FROM warehouses;
+
+
+-- Exercise 4: Get supplier basics (id, name, country)
+-- SELECT supplier_id, supplier_name, country FROM suppliers;
+
+
+-- Exercise 5: Get inventory snapshot (product, quantity, location)
+-- SELECT product_id, quantity, warehouse_id FROM inventory;
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - How to FILTER results using the WHERE clause
+-- - Getting only rows that meet specific conditions
+-- - Example: SELECT product_id, quantity FROM inventory WHERE quantity > 100;
+-- 
+-- This lets you answer questions like:
+-- - "Show me only products that are low in stock"
+-- - "Which orders were placed today?"
+-- - "What inventory is in the New York warehouse?"
+-- ============================================================================
