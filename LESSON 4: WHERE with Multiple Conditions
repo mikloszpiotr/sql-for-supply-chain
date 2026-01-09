@@ -1,0 +1,523 @@
+-- ============================================================================
+-- LESSON 4: WHERE with Multiple Conditions (AND/OR)
+-- ============================================================================
+-- Now you'll learn to combine multiple conditions in a single WHERE clause.
+-- This lets you create sophisticated filters for complex business scenarios.
+--
+-- Two main logical operators:
+-- AND - BOTH conditions must be true
+-- OR  - AT LEAST ONE condition must be true
+--
+-- Think of it like:
+-- AND = "this AND that must both be true"
+-- OR  = "this OR that (or both) must be true"
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: USING AND (Both conditions must be true)
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Low stock items in a specific warehouse
+-- Find products with quantity less than 50 AND in warehouse WH01
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity < 50 
+  AND warehouse_id = 'WH01';
+
+-- Results (BOTH conditions must be true):
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1003       | 15       | WH01
+-- 1007       | 8        | WH01
+-- 1012       | 35       | WH01
+--
+-- Use case: NYC warehouse manager needs to know which items to reorder locally
+-- Note: Product in WH02 with quantity 45 won't show (wrong warehouse)
+--       Product in WH01 with quantity 150 won't show (not low stock)
+
+
+-- Example 2: High-value orders that are still pending
+-- Find orders over $500 AND status is 'Pending'
+
+SELECT order_id, customer_id, total, status
+FROM orders
+WHERE total > 500 
+  AND status = 'Pending';
+
+-- Results:
+-- order_id | customer_id | total   | status
+-- ---------|-------------|---------|--------
+-- 5006     | C789        | 875.50  | Pending
+-- 5011     | C456        | 1200.00 | Pending
+-- 5018     | C234        | 650.00  | Pending
+--
+-- Use case: Manager needs to prioritize large pending orders for approval
+-- Shows only orders that are BOTH high-value AND not yet processed
+
+
+-- Example 3: Expensive electronics products
+-- Find products in 'Electronics' category AND price over $100
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category = 'Electronics' 
+  AND price > 100;
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1008       | Smart Device        | Electronics | 249.99
+-- 1012       | Circuit Board       | Electronics | 175.50
+-- 1020       | Premium Gadget      | Electronics | 399.99
+--
+-- Use case: Finding premium electronics for special promotion
+-- Note: Cheap electronics won't show (price too low)
+--       Expensive tools won't show (wrong category)
+
+
+-- Example 4: Products from specific supplier with high price
+-- Find products from supplier 501 AND priced above $50
+
+SELECT product_id, product_name, price, supplier_id
+FROM products
+WHERE supplier_id = 501 
+  AND price > 50;
+
+-- Results:
+-- product_id | product_name    | price  | supplier_id
+-- -----------|-----------------|--------|------------
+-- 1003       | Component C     | 99.99  | 501
+-- 1007       | Assembly Kit    | 150.00 | 501
+-- 1015       | Premium Part    | 75.50  | 501
+--
+-- Use case: Analyzing high-value products from a key supplier
+
+
+-- Example 5: Recent orders with large totals
+-- Find orders placed after Jan 15, 2024 AND total over $1000
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE order_date > '2024-01-15' 
+  AND total > 1000;
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5003     | C789        | 2024-01-16  | 1200.00
+-- 5008     | C123        | 2024-01-20  | 2500.00
+-- 5012     | C890        | 2024-01-22  | 1575.50
+--
+-- Use case: Finding recent large orders for VIP customer analysis
+
+
+-- Example 6: Three conditions with AND
+-- Find low stock electronics in warehouse WH01
+
+SELECT product_id, product_name, quantity, category, warehouse_id
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE quantity < 30 
+  AND category = 'Electronics' 
+  AND warehouse_id = 'WH01';
+
+-- Results:
+-- product_id | product_name  | quantity | category    | warehouse_id
+-- -----------|---------------|----------|-------------|-------------
+-- 1003       | Component C   | 15       | Electronics | WH01
+-- 1008       | Smart Device  | 8        | Electronics | WH01
+--
+-- Use case: Critical reorder list for specific category in specific location
+-- ALL THREE conditions must be true to appear in results
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: USING OR (At least one condition must be true)
+-- ----------------------------------------------------------------------------
+
+-- Example 7: Orders that are either pending or processing
+-- Find orders with status 'Pending' OR 'Processing'
+
+SELECT order_id, customer_id, status, order_date
+FROM orders
+WHERE status = 'Pending' 
+   OR status = 'Processing';
+
+-- Results (if EITHER condition is true):
+-- order_id | customer_id | status      | order_date
+-- ---------|-------------|-------------|------------
+-- 5002     | C456        | Pending     | 2024-01-16
+-- 5006     | C789        | Processing  | 2024-01-18
+-- 5009     | C345        | Processing  | 2024-01-19
+-- 5011     | C678        | Pending     | 2024-01-20
+--
+-- Use case: Finding all orders that still need action (not yet shipped/delivered)
+
+
+-- Example 8: Products from two specific suppliers
+-- Find products from supplier 501 OR supplier 502
+
+SELECT product_id, product_name, supplier_id, price
+FROM products
+WHERE supplier_id = 501 
+   OR supplier_id = 502;
+
+-- Results:
+-- product_id | product_name    | supplier_id | price
+-- -----------|-----------------|-------------|-------
+-- 1001       | Widget A        | 501         | 29.99
+-- 1002       | Gadget B        | 502         | 15.50
+-- 1003       | Component C     | 501         | 99.99
+-- 1005       | Tool Set        | 502         | 125.00
+--
+-- Use case: Comparing products from two preferred suppliers
+-- Shows products from EITHER supplier (or both, if applicable)
+
+
+-- Example 9: Out of stock OR critically low stock
+-- Find inventory with quantity 0 OR less than 10
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity = 0 
+   OR quantity < 10;
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1003       | 0        | WH01
+-- 1007       | 8        | WH01
+-- 1009       | 0        | WH03
+-- 1014       | 5        | WH02
+-- 1018       | 9        | WH02
+--
+-- Use case: Emergency reorder list - items that are out or almost out
+-- Note: Quantity = 0 OR quantity < 10 could be simplified to quantity < 10
+--       (since 0 is less than 10), but shown separately for clarity
+
+
+-- Example 10: High-value or VIP customer orders
+-- Find orders over $2000 OR from customer C123
+
+SELECT order_id, customer_id, total, status
+FROM orders
+WHERE total > 2000 
+   OR customer_id = 'C123';
+
+-- Results:
+-- order_id | customer_id | total   | status
+-- ---------|-------------|---------|----------
+-- 5001     | C123        | 450.00  | Delivered
+-- 5004     | C123        | 89.99   | Processing
+-- 5008     | C123        | 2500.00 | Delivered
+-- 5015     | C890        | 3200.00 | Shipped
+--
+-- Use case: Special handling for large orders or VIP customer orders
+-- Shows orders that meet EITHER criterion (or both)
+
+
+-- Example 11: Electronics or Tools categories
+-- Find products in category 'Electronics' OR 'Tools'
+
+SELECT product_id, product_name, category, price
+FROM products
+WHERE category = 'Electronics' 
+   OR category = 'Tools';
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1001       | Widget A            | Electronics | 29.99
+-- 1002       | Gadget B            | Tools       | 15.50
+-- 1003       | Component C         | Electronics | 99.99
+-- 1004       | Tool Set D          | Tools       | 125.00
+--
+-- Use case: Product catalog for specific departments or promotions
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: COMBINING AND with OR (Complex Logic)
+-- ----------------------------------------------------------------------------
+
+-- Example 12: Low stock in specific warehouses
+-- Find products with quantity < 50 in (warehouse WH01 OR WH02)
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity < 50 
+  AND (warehouse_id = 'WH01' OR warehouse_id = 'WH02');
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1003       | 15       | WH01
+-- 1007       | 8        | WH01
+-- 1009       | 35       | WH02
+-- 1014       | 5        | WH02
+--
+-- Use case: Reorder list for East Coast warehouses only
+-- Note: Parentheses are CRITICAL here! They ensure OR is evaluated first
+-- WITHOUT parentheses, the logic would be different (and wrong)
+
+
+-- Example 13: High-priority orders needing attention
+-- Find orders that are (Pending OR Processing) AND total > $500
+
+SELECT order_id, customer_id, status, total
+FROM orders
+WHERE (status = 'Pending' OR status = 'Processing') 
+  AND total > 500;
+
+-- Results:
+-- order_id | customer_id | status      | total
+-- ---------|-------------|-------------|--------
+-- 5006     | C789        | Processing  | 875.50
+-- 5011     | C456        | Pending     | 1200.00
+-- 5018     | C234        | Pending     | 650.00
+--
+-- Use case: High-value orders that haven't shipped yet
+-- These need immediate attention from operations team
+
+
+-- Example 14: Specific products in multiple locations
+-- Find product 1001 OR 1003 in warehouse WH01
+
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE (product_id = 1001 OR product_id = 1003) 
+  AND warehouse_id = 'WH01';
+
+-- Results:
+-- product_id | quantity | warehouse_id
+-- -----------|----------|-------------
+-- 1001       | 150      | WH01
+-- 1003       | 15       | WH01
+--
+-- Use case: Checking stock of specific products at specific location
+
+
+-- Example 15: Premium products from preferred suppliers
+-- Find products priced > $100 from (supplier 501 OR 502)
+
+SELECT product_id, product_name, price, supplier_id
+FROM products
+WHERE price > 100 
+  AND (supplier_id = 501 OR supplier_id = 502);
+
+-- Results:
+-- product_id | product_name    | price  | supplier_id
+-- -----------|-----------------|--------|------------
+-- 1007       | Assembly Kit    | 150.00 | 501
+-- 1005       | Tool Set        | 125.00 | 502
+-- 1020       | Premium Gadget  | 399.99 | 501
+--
+-- Use case: High-value products from trusted supplier partners
+
+
+-- Example 16: Complex inventory alert system
+-- Find products that are (low stock OR out of stock) AND high priority category
+
+SELECT product_id, product_name, quantity, category, warehouse_id
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE (quantity < 20 OR quantity = 0) 
+  AND (category = 'Electronics' OR category = 'Medical');
+
+-- Results:
+-- product_id | product_name    | quantity | category    | warehouse_id
+-- -----------|-----------------|----------|-------------|-------------
+-- 1003       | Component C     | 15       | Electronics | WH01
+-- 1008       | Smart Device    | 8        | Electronics | WH01
+-- 1022       | Medical Supply  | 0        | Medical     | WH03
+--
+-- Use case: Critical reorder alert for high-priority product categories
+
+
+-- Example 17: Recent orders from VIP customers or large orders
+-- Find orders from (customer C123 OR C456) AND placed after 2024-01-15
+--      OR any orders over $2000
+
+SELECT order_id, customer_id, order_date, total
+FROM orders
+WHERE ((customer_id = 'C123' OR customer_id = 'C456') 
+       AND order_date > '2024-01-15')
+   OR total > 2000;
+
+-- Results:
+-- order_id | customer_id | order_date  | total
+-- ---------|-------------|-------------|--------
+-- 5004     | C123        | 2024-01-17  | 89.99
+-- 5008     | C123        | 2024-01-20  | 2500.00
+-- 5013     | C456        | 2024-01-18  | 340.00
+-- 5015     | C890        | 2024-01-10  | 3200.00
+--
+-- Use case: Priority order tracking for VIP customers and large orders
+-- Note: Complex parentheses structure - be careful with logic!
+
+
+-- ============================================================================
+-- UNDERSTANDING AND vs OR: THE DIFFERENCE
+-- ============================================================================
+
+-- AND Example: Both conditions must be TRUE
+SELECT * FROM inventory
+WHERE quantity < 50 AND warehouse_id = 'WH01';
+-- Returns: Only rows where quantity IS less than 50 
+--          AND warehouse IS WH01
+-- If either condition is false, row is excluded
+
+
+-- OR Example: At least one condition must be TRUE
+SELECT * FROM inventory
+WHERE quantity < 50 OR warehouse_id = 'WH01';
+-- Returns: Rows where quantity IS less than 50
+--          OR warehouse IS WH01
+--          OR BOTH conditions are true
+-- Row appears if ANY condition is true
+
+
+-- ============================================================================
+-- THE IMPORTANCE OF PARENTHESES
+-- ============================================================================
+
+-- WITHOUT Parentheses (Wrong interpretation):
+SELECT * FROM orders
+WHERE status = 'Pending' 
+   OR status = 'Processing' 
+  AND total > 500;
+
+-- This is evaluated as:
+-- status = 'Pending' OR (status = 'Processing' AND total > 500)
+-- Shows: ALL pending orders (regardless of amount)
+--        PLUS processing orders over $500
+
+
+-- WITH Parentheses (Correct interpretation):
+SELECT * FROM orders
+WHERE (status = 'Pending' OR status = 'Processing') 
+  AND total > 500;
+
+-- This is evaluated as:
+-- (status = 'Pending' OR status = 'Processing') AND total > 500
+-- Shows: Only pending or processing orders that are ALSO over $500
+
+
+-- RULE: When mixing AND with OR, ALWAYS use parentheses for clarity!
+
+
+-- ============================================================================
+-- COMMON PATTERNS IN SUPPLY CHAIN
+-- ============================================================================
+
+-- Pattern 1: Low stock alert with location filter
+SELECT product_id, quantity, warehouse_id
+FROM inventory
+WHERE quantity < 20 
+  AND (warehouse_id = 'WH01' OR warehouse_id = 'WH02');
+
+
+-- Pattern 2: Orders needing immediate attention
+SELECT order_id, customer_id, status, total
+FROM orders
+WHERE status IN ('Pending', 'Processing')  -- simpler way, covered in next lesson
+  AND (total > 1000 OR customer_id IN ('C123', 'C456'));
+
+
+-- Pattern 3: Product availability check
+SELECT product_id, product_name, quantity
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE quantity > 0 
+  AND (category = 'Electronics' OR category = 'Tools')
+  AND price < 100;
+
+
+-- Pattern 4: Overdue shipment tracking
+SELECT order_id, ship_date, status, carrier
+FROM shipments
+WHERE status != 'Delivered' 
+  AND ship_date < '2024-01-15'
+  AND (carrier = 'FedEx' OR carrier = 'UPS');
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting parentheses with mixed AND/OR
+-- SELECT * FROM orders WHERE status = 'Pending' OR status = 'Processing' AND total > 500;
+
+-- CORRECT: Always use parentheses for clarity
+SELECT * FROM orders WHERE (status = 'Pending' OR status = 'Processing') AND total > 500;
+
+
+-- WRONG: Trying to use AND for OR logic
+-- SELECT * FROM products WHERE category = 'Electronics' AND category = 'Tools';
+-- (A product can't be BOTH categories at once!)
+
+-- CORRECT: Use OR when checking for multiple values
+SELECT * FROM products WHERE category = 'Electronics' OR category = 'Tools';
+
+
+-- WRONG: Redundant conditions
+-- SELECT * FROM inventory WHERE quantity < 50 AND quantity < 100;
+-- (If quantity < 50, it's already < 100)
+
+-- CORRECT: Use only the more restrictive condition
+SELECT * FROM inventory WHERE quantity < 50;
+
+
+-- WRONG: Conflicting conditions with AND
+-- SELECT * FROM orders WHERE status = 'Pending' AND status = 'Delivered';
+-- (Status can't be both values at once - returns no results)
+
+-- CORRECT: Use OR for multiple possible values
+SELECT * FROM orders WHERE status = 'Pending' OR status = 'Delivered';
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: Find electronics products priced between $50 and $200
+-- SELECT product_id, product_name, price 
+-- FROM products 
+-- WHERE category = 'Electronics' AND price > 50 AND price < 200;
+
+
+-- Exercise 2: Find orders from customer C123 or C456 with status 'Delivered'
+-- SELECT order_id, customer_id, status 
+-- FROM orders 
+-- WHERE (customer_id = 'C123' OR customer_id = 'C456') AND status = 'Delivered';
+
+
+-- Exercise 3: Find low stock (< 25) in warehouse WH01 or WH03
+-- SELECT product_id, quantity, warehouse_id 
+-- FROM inventory 
+-- WHERE quantity < 25 AND (warehouse_id = 'WH01' OR warehouse_id = 'WH03');
+
+
+-- Exercise 4: Find products from supplier 501 that cost less than $50 or more than $150
+-- SELECT product_id, product_name, price, supplier_id 
+-- FROM products 
+-- WHERE supplier_id = 501 AND (price < 50 OR price > 150);
+
+
+-- Exercise 5: Find pending orders over $500 or processing orders over $1000
+-- SELECT order_id, status, total 
+-- FROM orders 
+-- WHERE (status = 'Pending' AND total > 500) OR (status = 'Processing' AND total > 1000);
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- In the next lesson, you'll learn:
+-- - IN operator: Cleaner way to check multiple values
+--   Example: WHERE category IN ('Electronics', 'Tools', 'Medical')
+-- - BETWEEN operator: Easier range checking
+--   Example: WHERE price BETWEEN 50 AND 200
+-- - These make your queries shorter and more readable!
+-- ============================================================================
