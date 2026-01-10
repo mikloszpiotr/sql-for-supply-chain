@@ -1,0 +1,812 @@
+-- ============================================================================
+-- LESSON 8: ORDER BY - Sorting Results
+-- ============================================================================
+-- ORDER BY allows you to sort your query results in a specific order.
+-- Without ORDER BY, results come back in an unpredictable order.
+--
+-- Two sorting directions:
+-- ASC  = Ascending (lowest to highest)  - DEFAULT if not specified
+-- DESC = Descending (highest to lowest)
+--
+-- Why sorting matters in supply chain:
+-- - Finding most/least expensive products
+-- - Prioritizing urgent orders
+-- - Organizing inventory by location then value
+-- - Identifying oldest stock (FIFO)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: SORTING BY SINGLE COLUMN
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Sort products by price (lowest to highest)
+-- Basic ascending sort - ASC is optional (it's the default)
+
+SELECT product_id, product_name, price, category
+FROM products
+ORDER BY price;
+
+-- Same as:
+-- ORDER BY price ASC;
+
+-- Results (sorted lowest to highest):
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1005       | Part E              | 8.75   | Parts
+-- 1002       | Gadget B            | 15.50  | Tools
+-- 1001       | Widget A            | 29.99  | Electronics
+-- 1003       | Component C         | 99.99  | Electronics
+-- 1004       | Tool Set D          | 125.00 | Tools
+-- 1008       | Smart Device        | 249.99 | Electronics
+--
+-- Use case: Budget shopping or identifying cheapest products
+
+
+-- Example 2: Sort products by price (highest to lowest)
+-- Descending sort - most expensive first
+
+SELECT product_id, product_name, price, category
+FROM products
+ORDER BY price DESC;
+
+-- Results (sorted highest to lowest):
+-- product_id | product_name        | price  | category
+-- -----------|---------------------|--------|----------
+-- 1020       | Premium Gadget      | 399.99 | Electronics
+-- 1008       | Smart Device        | 249.99 | Electronics
+-- 1012       | Circuit Board       | 175.50 | Electronics
+-- 1007       | Assembly Kit        | 150.00 | Electronics
+-- 1004       | Tool Set D          | 125.00 | Tools
+-- 1003       | Component C         | 99.99  | Electronics
+--
+-- Use case: Premium product catalog or revenue optimization
+
+
+-- Example 3: Sort inventory by quantity (lowest stock first)
+-- Critical for identifying reorder priorities
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+ORDER BY quantity ASC;
+
+-- Results:
+-- product_id | product_name    | quantity | warehouse_id
+-- -----------|-----------------|----------|-------------
+-- 1009       | Part Z          | 0        | WH03
+-- 1012       | Widget Q        | 0        | WH01
+-- 1007       | Widget X        | 8        | WH01
+-- 1014       | Tool Y          | 15       | WH02
+-- 1005       | Gadget C        | 35       | WH02
+-- 1002       | Gadget B        | 89       | WH02
+--
+-- Use case: Reorder priority list - lowest stock needs attention first
+-- Out of stock (0) items at the top
+
+
+-- Example 4: Sort inventory by quantity (highest stock first)
+-- Finding overstocked items
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+ORDER BY quantity DESC;
+
+-- Results:
+-- product_id | product_name  | quantity | warehouse_id
+-- -----------|---------------|----------|-------------
+-- 1004       | Tool Set D    | 245      | WH03
+-- 1006       | Part M        | 180      | WH03
+-- 1011       | Component R   | 156      | WH03
+-- 1001       | Widget A      | 150      | WH01
+-- 1002       | Gadget B      | 89       | WH02
+--
+-- Use case: Identifying potential overstock situations
+-- May need to run promotions on high-quantity items
+
+
+-- Example 5: Sort orders by date (oldest first)
+-- FIFO (First In, First Out) order processing
+
+SELECT order_id, customer_id, order_date, total, status
+FROM orders
+ORDER BY order_date ASC;
+
+-- Results:
+-- order_id | customer_id | order_date  | total   | status
+-- ---------|-------------|-------------|---------|----------
+-- 5001     | C123        | 2024-01-10  | 450.00  | Delivered
+-- 5003     | C456        | 2024-01-12  | 1200.00 | Shipped
+-- 5002     | C456        | 2024-01-16  | 230.50  | Pending
+-- 5006     | C789        | 2024-01-18  | 875.50  | Processing
+-- 5011     | C678        | 2024-01-20  | 1200.00 | Pending
+--
+-- Use case: Processing orders in the order they were received
+-- Oldest orders should be fulfilled first
+
+
+-- Example 6: Sort orders by date (newest first)
+-- Most recent activity first
+
+SELECT order_id, customer_id, order_date, total, status
+FROM orders
+ORDER BY order_date DESC;
+
+-- Results:
+-- order_id | customer_id | order_date  | total   | status
+-- ---------|-------------|-------------|---------|----------
+-- 5015     | C890        | 2024-01-25  | 3200.00 | Processing
+-- 5011     | C678        | 2024-01-20  | 1200.00 | Pending
+-- 5006     | C789        | 2024-01-18  | 875.50  | Processing
+-- 5002     | C456        | 2024-01-16  | 230.50  | Pending
+-- 5003     | C456        | 2024-01-12  | 1200.00 | Shipped
+--
+-- Use case: Dashboard showing most recent orders
+-- Latest activity monitoring
+
+
+-- Example 7: Sort orders by total value (highest first)
+-- VIP orders or revenue prioritization
+
+SELECT order_id, customer_id, total, order_date, status
+FROM orders
+ORDER BY total DESC;
+
+-- Results:
+-- order_id | customer_id | total   | order_date  | status
+-- ---------|-------------|---------|-------------|----------
+-- 5015     | C890        | 3200.00 | 2024-01-25  | Processing
+-- 5008     | C123        | 2500.00 | 2024-01-20  | Delivered
+-- 5012     | C890        | 1575.50 | 2024-01-22  | Processing
+-- 5003     | C789        | 1200.00 | 2024-01-16  | Shipped
+-- 5011     | C678        | 1200.00 | 2024-01-20  | Pending
+--
+-- Use case: High-value order special handling
+-- Large orders may need manager approval or expedited processing
+
+
+-- Example 8: Sort products alphabetically by name
+-- Catalog organization
+
+SELECT product_id, product_name, category, price
+FROM products
+ORDER BY product_name ASC;
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1007       | Assembly Kit        | Electronics | 150.00
+-- 1012       | Circuit Board       | Electronics | 175.50
+-- 1003       | Component C         | Electronics | 99.99
+-- 1002       | Gadget B            | Tools       | 15.50
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+-- 1020       | Premium Gadget      | Electronics | 399.99
+--
+-- Use case: User-friendly product listing
+-- A-Z ordering for easy browsing
+
+
+-- Example 9: Sort warehouses by capacity (largest first)
+-- Strategic warehouse planning
+
+SELECT warehouse_id, warehouse_name, city, capacity, current_usage
+FROM warehouses
+ORDER BY capacity DESC;
+
+-- Results:
+-- warehouse_id | warehouse_name | city        | capacity | current_usage
+-- -------------|----------------|-------------|----------|---------------
+-- WH02         | West Coast DC  | Los Angeles | 120000   | 90000
+-- WH01         | East Coast DC  | New York    | 100000   | 75000
+-- WH03         | Central DC     | Chicago     | 80000    | 45000
+-- WH04         | South DC       | Atlanta     | 60000    | 38000
+--
+-- Use case: Capacity planning and inventory distribution
+-- Knowing which warehouses have most space
+
+
+-- Example 10: Sort suppliers by rating (best first)
+-- Supplier performance ranking
+
+SELECT supplier_id, supplier_name, country, rating
+FROM suppliers
+ORDER BY rating DESC;
+
+-- Results:
+-- supplier_id | supplier_name     | country | rating
+-- ------------|-------------------|---------|-------
+-- 502         | XYZ Components    | China   | 4.8
+-- 505         | Premium Supplies  | Germany | 4.7
+-- 501         | ABC Manufacturing | USA     | 4.5
+-- 503         | Global Supply Co  | Germany | 4.2
+--
+-- Use case: Preferred supplier list
+-- Prioritize ordering from highest-rated suppliers
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: SORTING BY MULTIPLE COLUMNS
+-- ----------------------------------------------------------------------------
+-- When the first column has duplicate values, the second column determines order
+
+-- Example 11: Sort by category, then by price within each category
+-- Organized catalog by department
+
+SELECT product_id, product_name, category, price
+FROM products
+ORDER BY category ASC, price ASC;
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1001       | Widget A            | Electronics | 29.99
+-- 1003       | Component C         | Electronics | 99.99
+-- 1007       | Assembly Kit        | Electronics | 150.00
+-- 1012       | Circuit Board       | Electronics | 175.50
+-- 1008       | Smart Device        | Electronics | 249.99
+-- 1020       | Premium Gadget      | Electronics | 399.99
+-- 1002       | Gadget B            | Tools       | 15.50
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+-- 1004       | Tool Set D          | Tools       | 125.00
+--
+-- Use case: Catalog organized by category, with cheapest items first in each
+-- Electronics are grouped together, sorted by price
+-- Then Tools are grouped together, also sorted by price
+
+
+-- Example 12: Sort by category DESC, then price DESC
+-- Premium products first in each category
+
+SELECT product_id, product_name, category, price
+FROM products
+ORDER BY category DESC, price DESC;
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1004       | Tool Set D          | Tools       | 125.00
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+-- 1002       | Gadget B            | Tools       | 15.50
+-- 1020       | Premium Gadget      | Electronics | 399.99
+-- 1008       | Smart Device        | Electronics | 249.99
+-- 1012       | Circuit Board       | Electronics | 175.50
+--
+-- Use case: Premium product showcase by category
+-- Tools category first (DESC), most expensive tools first
+-- Electronics second, most expensive electronics first
+
+
+-- Example 13: Sort inventory by warehouse, then quantity
+-- Warehouse-by-warehouse stock report
+
+SELECT product_id, product_name, warehouse_id, quantity
+FROM inventory
+ORDER BY warehouse_id ASC, quantity ASC;
+
+-- Results:
+-- product_id | product_name  | warehouse_id | quantity
+-- -----------|---------------|--------------|----------
+-- 1012       | Widget Q      | WH01         | 0
+-- 1007       | Widget X      | WH01         | 8
+-- 1003       | Component C   | WH01         | 15
+-- 1001       | Widget A      | WH01         | 150
+-- 1014       | Tool Y        | WH02         | 15
+-- 1005       | Gadget C      | WH02         | 35
+-- 1002       | Gadget B      | WH02         | 89
+-- 1009       | Part Z        | WH03         | 0
+-- 1011       | Component R   | WH03         | 156
+--
+-- Use case: Warehouse manager reviews each location
+-- All WH01 items together (lowest stock first)
+-- Then WH02 items (lowest stock first), etc.
+
+
+-- Example 14: Sort by warehouse, then by quantity DESC
+-- Finding highest stock per warehouse
+
+SELECT product_id, product_name, warehouse_id, quantity
+FROM inventory
+ORDER BY warehouse_id ASC, quantity DESC;
+
+-- Results:
+-- product_id | product_name  | warehouse_id | quantity
+-- -----------|---------------|--------------|----------
+-- 1001       | Widget A      | WH01         | 150
+-- 1003       | Component C   | WH01         | 15
+-- 1007       | Widget X      | WH01         | 8
+-- 1012       | Widget Q      | WH01         | 0
+-- 1002       | Gadget B      | WH02         | 89
+-- 1005       | Gadget C      | WH02         | 35
+-- 1014       | Tool Y        | WH02         | 15
+--
+-- Use case: Each warehouse's highest stock items first
+-- Good for identifying which items dominate each location
+
+
+-- Example 15: Sort orders by status, then by date
+-- Operations workflow prioritization
+
+SELECT order_id, customer_id, status, order_date, total
+FROM orders
+ORDER BY status ASC, order_date ASC;
+
+-- Results:
+-- order_id | customer_id | status      | order_date  | total
+-- ---------|-------------|-------------|-------------|--------
+-- 5001     | C123        | Delivered   | 2024-01-15  | 450.00
+-- 5003     | C789        | Delivered   | 2024-01-16  | 1200.00
+-- 5008     | C123        | Delivered   | 2024-01-20  | 2500.00
+-- 5002     | C456        | Pending     | 2024-01-16  | 230.50
+-- 5011     | C678        | Pending     | 2024-01-20  | 1200.00
+-- 5006     | C789        | Processing  | 2024-01-18  | 875.50
+-- 5009     | C345        | Processing  | 2024-01-19  | 450.00
+--
+-- Use case: Workflow organized by status
+-- Within each status, oldest orders first (FIFO)
+
+
+-- Example 16: Sort by urgency - status and value combined
+-- High-value pending orders get priority
+
+SELECT order_id, customer_id, status, total, order_date
+FROM orders
+ORDER BY 
+    CASE status
+        WHEN 'Pending' THEN 1
+        WHEN 'Processing' THEN 2
+        WHEN 'Shipped' THEN 3
+        WHEN 'Delivered' THEN 4
+        WHEN 'Cancelled' THEN 5
+    END ASC,
+    total DESC,
+    order_date ASC;
+
+-- Results (Pending orders first, highest value first):
+-- order_id | customer_id | status      | total   | order_date
+-- ---------|-------------|-------------|---------|------------
+-- 5011     | C678        | Pending     | 1200.00 | 2024-01-20
+-- 5002     | C456        | Pending     | 230.50  | 2024-01-16
+-- 5012     | C890        | Processing  | 1575.50 | 2024-01-22
+-- 5006     | C789        | Processing  | 875.50  | 2024-01-18
+--
+-- Use case: Smart prioritization
+-- 1. Status urgency (Pending most urgent)
+-- 2. Within same status, higher value first
+-- 3. Within same status and value, oldest first
+
+
+-- Example 17: Sort by multiple columns with mixed ASC/DESC
+-- Category ascending, price descending
+
+SELECT product_id, product_name, category, price
+FROM products
+ORDER BY category ASC, price DESC;
+
+-- Results:
+-- product_id | product_name        | category    | price
+-- -----------|---------------------|-------------|-------
+-- 1020       | Premium Gadget      | Electronics | 399.99
+-- 1008       | Smart Device        | Electronics | 249.99
+-- 1012       | Circuit Board       | Electronics | 175.50
+-- 1007       | Assembly Kit        | Electronics | 150.00
+-- 1003       | Component C         | Electronics | 99.99
+-- 1001       | Widget A            | Electronics | 29.99
+-- 1004       | Tool Set D          | Tools       | 125.00
+-- 1023       | Mini Widget Kit     | Tools       | 45.50
+--
+-- Use case: Category catalog with most expensive items first in each section
+-- Helps promote premium products within each category
+
+
+-- Example 18: Three-level sorting - warehouse, category, quantity
+-- Complex inventory organization
+
+SELECT 
+    warehouse_id,
+    product_name,
+    category,
+    quantity
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+ORDER BY warehouse_id ASC, category ASC, quantity ASC;
+
+-- Results:
+-- warehouse_id | product_name    | category    | quantity
+-- -------------|-----------------|-------------|----------
+-- WH01         | Component C     | Electronics | 15
+-- WH01         | Widget A        | Electronics | 150
+-- WH01         | Mini Widget Kit | Tools       | 8
+-- WH02         | Smart Device    | Electronics | 35
+-- WH02         | Gadget B        | Tools       | 89
+-- WH03         | Circuit Board   | Electronics | 0
+--
+-- Use case: Detailed warehouse inventory report
+-- Organized by location, then category, then stock level
+
+
+-- Example 19: Sort suppliers by country, then rating, then name
+-- Geographic supplier analysis
+
+SELECT supplier_id, supplier_name, country, rating
+FROM suppliers
+ORDER BY country ASC, rating DESC, supplier_name ASC;
+
+-- Results:
+-- supplier_id | supplier_name     | country       | rating
+-- ------------|-------------------|---------------|-------
+-- 510         | Premium Parts     | China         | 4.9
+-- 502         | XYZ Components    | China         | 4.8
+-- 505         | Quality Supplies  | Germany       | 4.7
+-- 503         | Global Supply Co  | Germany       | 4.2
+-- 501         | ABC Manufacturing | United States | 4.5
+-- 508         | US Parts Inc      | United States | 4.3
+--
+-- Use case: Supplier selection by region
+-- Within each country, best-rated suppliers first
+-- If ratings are equal, alphabetical by name
+
+
+-- Example 20: Calculate and sort by inventory value
+-- Most valuable inventory first
+
+SELECT 
+    i.product_id,
+    p.product_name,
+    i.quantity,
+    p.price,
+    (i.quantity * p.price) AS inventory_value,
+    i.warehouse_id
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+ORDER BY inventory_value DESC;
+
+-- Results:
+-- product_id | product_name  | quantity | price  | inventory_value | warehouse_id
+-- -----------|---------------|----------|--------|-----------------|-------------
+-- 1004       | Tool Set D    | 245      | 125.00 | 30625.00        | WH03
+-- 1006       | Part M        | 180      | 99.99  | 17998.20        | WH03
+-- 1008       | Smart Device  | 35       | 249.99 | 8749.65         | WH02
+-- 1001       | Widget A      | 150      | 29.99  | 4498.50         | WH01
+--
+-- Use case: Asset management - tracking most valuable inventory
+-- Highest dollar value inventory needs better security
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: ADVANCED SORTING SCENARIOS
+-- ----------------------------------------------------------------------------
+
+-- Example 21: Sort by calculated field - inventory turnover priority
+-- Items with lowest quantity relative to price need attention
+
+SELECT 
+    product_id,
+    product_name,
+    quantity,
+    price,
+    ROUND(quantity / price, 2) AS quantity_per_dollar
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+ORDER BY quantity_per_dollar ASC;
+
+-- Results (lowest ratio = expensive items with low stock):
+-- product_id | product_name    | quantity | price  | quantity_per_dollar
+-- -----------|-----------------|----------|--------|--------------------
+-- 1020       | Premium Gadget  | 5        | 399.99 | 0.01
+-- 1008       | Smart Device    | 35       | 249.99 | 0.14
+-- 1003       | Component C     | 15       | 99.99  | 0.15
+-- 1001       | Widget A        | 150      | 29.99  | 5.00
+--
+-- Use case: Reorder priority for high-value items
+-- Low ratio means expensive product with insufficient stock
+
+
+-- Example 22: Sort by warehouse utilization
+-- Which warehouses are most full?
+
+SELECT 
+    warehouse_id,
+    warehouse_name,
+    capacity,
+    current_usage,
+    ROUND((current_usage * 100.0 / capacity), 2) AS utilization_percent
+FROM warehouses
+ORDER BY utilization_percent DESC;
+
+-- Results:
+-- warehouse_id | warehouse_name | capacity | current_usage | utilization_percent
+-- -------------|----------------|----------|---------------|--------------------
+-- WH02         | West Coast DC  | 120000   | 90000         | 75.00
+-- WH01         | East Coast DC  | 100000   | 75000         | 75.00
+-- WH04         | South DC       | 60000    | 38000         | 63.33
+-- WH03         | Central DC     | 80000    | 45000         | 56.25
+--
+-- Use case: Capacity planning
+-- Warehouses over 70% may need expansion or redistribution
+
+
+-- Example 23: Priority ordering with complex business rules
+-- Urgent orders: Pending + High Value + Old
+
+SELECT 
+    order_id,
+    customer_id,
+    status,
+    total,
+    order_date,
+    DATEDIFF(CURRENT_DATE, order_date) AS days_old,
+    CASE 
+        WHEN status = 'Pending' AND total > 1000 AND DATEDIFF(CURRENT_DATE, order_date) > 3 THEN 1
+        WHEN status = 'Pending' AND total > 1000 THEN 2
+        WHEN status = 'Pending' AND DATEDIFF(CURRENT_DATE, order_date) > 3 THEN 3
+        WHEN status = 'Processing' AND DATEDIFF(CURRENT_DATE, order_date) > 2 THEN 4
+        ELSE 5
+    END AS urgency_level
+FROM orders
+WHERE status IN ('Pending', 'Processing')
+ORDER BY urgency_level ASC, total DESC, order_date ASC;
+
+-- Results (most urgent first):
+-- order_id | customer_id | status   | total   | order_date  | days_old | urgency_level
+-- ---------|-------------|----------|---------|-------------|----------|---------------
+-- 5011     | C678        | Pending  | 1200.00 | 2024-01-12  | 9        | 1
+-- 5006     | C789        | Pending  | 1500.00 | 2024-01-18  | 3        | 2
+-- 5002     | C456        | Pending  | 230.50  | 2024-01-15  | 6        | 3
+--
+-- Use case: Smart work queue prioritization
+-- Multiple factors combined into single urgency ranking
+
+
+-- Example 24: Sort orders by customer, then date
+-- Customer order history
+
+SELECT order_id, customer_id, order_date, total, status
+FROM orders
+ORDER BY customer_id ASC, order_date DESC;
+
+-- Results:
+-- order_id | customer_id | order_date  | total   | status
+-- ---------|-------------|-------------|---------|----------
+-- 5008     | C123        | 2024-01-20  | 2500.00 | Delivered
+-- 5004     | C123        | 2024-01-17  | 89.99   | Processing
+-- 5001     | C123        | 2024-01-15  | 450.00  | Delivered
+-- 5005     | C456        | 2024-01-18  | 567.89  | Shipped
+-- 5002     | C456        | 2024-01-16  | 230.50  | Pending
+--
+-- Use case: Customer service - viewing customer's order history
+-- All orders for each customer, most recent first
+
+
+-- Example 25: Sort by text field length - incomplete data first
+-- Find products with short descriptions (likely incomplete)
+
+SELECT 
+    product_id,
+    product_name,
+    description,
+    LENGTH(description) AS desc_length
+FROM products
+WHERE description IS NOT NULL
+ORDER BY desc_length ASC;
+
+-- Results:
+-- product_id | product_name  | description        | desc_length
+-- -----------|---------------|-------------------|------------
+-- 1003       | Component C   | Basic part        | 10
+-- 1005       | Tool Set      | Tools             | 5
+-- 1001       | Widget A      | High quality...   | 45
+-- 1008       | Smart Device  | Advanced smart... | 120
+--
+-- Use case: Content quality control
+-- Short descriptions need to be expanded
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: SORTING WITH LIMITS
+-- ----------------------------------------------------------------------------
+
+-- Example 26: Top 5 most expensive products
+-- Using ORDER BY with LIMIT
+
+SELECT product_id, product_name, price, category
+FROM products
+ORDER BY price DESC
+LIMIT 5;
+
+-- Results (only top 5):
+-- product_id | product_name       | price  | category
+-- -----------|--------------------|--------|----------
+-- 1020       | Premium Gadget     | 399.99 | Electronics
+-- 1008       | Smart Device       | 249.99 | Electronics
+-- 1012       | Circuit Board      | 175.50 | Electronics
+-- 1007       | Assembly Kit       | 150.00 | Electronics
+-- 1004       | Tool Set D         | 125.00 | Tools
+--
+-- Use case: Premium product showcase
+-- Only showing the most expensive items
+
+
+-- Example 27: Top 10 largest orders
+-- Revenue analysis
+
+SELECT order_id, customer_id, total, order_date
+FROM orders
+ORDER BY total DESC
+LIMIT 10;
+
+-- Use case: High-value customer analysis
+-- Focus on biggest revenue generators
+
+
+-- Example 28: Bottom 5 stock items (excluding zero)
+-- Most urgent reorders
+
+SELECT product_id, product_name, quantity, warehouse_id
+FROM inventory
+WHERE quantity > 0
+ORDER BY quantity ASC
+LIMIT 5;
+
+-- Results (5 lowest non-zero stock):
+-- product_id | product_name  | quantity | warehouse_id
+-- -----------|---------------|----------|-------------
+-- 1014       | Tool Y        | 5        | WH02
+-- 1007       | Widget X      | 8        | WH01
+-- 1018       | Part Q        | 12       | WH03
+-- 1003       | Component C   | 15       | WH01
+-- 1025       | Assembly P    | 18       | WH02
+--
+-- Use case: Top 5 reorder priority list
+-- Excludes out-of-stock (0) but shows critically low items
+
+
+-- Example 29: Most recent 20 orders
+-- Operations dashboard
+
+SELECT order_id, customer_id, order_date, total, status
+FROM orders
+ORDER BY order_date DESC, order_id DESC
+LIMIT 20;
+
+-- Use case: Recent activity monitoring
+-- Latest 20 orders for operations team
+
+
+-- Example 30: Top 3 suppliers per country
+-- Best suppliers in each region (requires window functions - preview)
+
+SELECT supplier_id, supplier_name, country, rating
+FROM (
+    SELECT 
+        supplier_id,
+        supplier_name,
+        country,
+        rating,
+        ROW_NUMBER() OVER (PARTITION BY country ORDER BY rating DESC) AS rank_in_country
+    FROM suppliers
+) ranked
+WHERE rank_in_country <= 3
+ORDER BY country ASC, rating DESC;
+
+-- Results:
+-- supplier_id | supplier_name     | country       | rating
+-- ------------|-------------------|---------------|-------
+-- 510         | Premium Parts     | China         | 4.9
+-- 502         | XYZ Components    | China         | 4.8
+-- 511         | Quality Mfg       | China         | 4.7
+-- 505         | Top Supplies      | Germany       | 4.7
+-- 503         | Global Supply Co  | Germany       | 4.2
+--
+-- Use case: Regional supplier selection
+-- Top 3 suppliers in each country
+
+
+-- ============================================================================
+-- ORDER BY BEST PRACTICES
+-- ============================================================================
+
+-- 1. Always specify ASC or DESC for clarity (even though ASC is default)
+-- 2. Use multiple columns to break ties in sorted results
+-- 3. Consider indexing columns you frequently sort by (performance)
+-- 4. Be careful with NULL values - they typically appear first (ASC) or last (DESC)
+-- 5. Combine with WHERE to filter before sorting
+-- 6. Use LIMIT with ORDER BY to get top/bottom N results
+
+
+-- ============================================================================
+-- NULL HANDLING IN ORDER BY
+-- ============================================================================
+
+-- Example 31: How NULL values are sorted
+
+SELECT product_id, product_name, description
+FROM products
+ORDER BY description ASC;
+
+-- Results (NULL values appear first in ASC):
+-- product_id | product_name  | description
+-- -----------|---------------|----------------
+-- 1003       | Component C   | NULL
+-- 1009       | Part Z        | NULL
+-- 1001       | Widget A      | Advanced widget
+-- 1002       | Gadget B      | Professional...
+
+-- With DESC, NULLs appear last:
+SELECT product_id, product_name, description
+FROM products
+ORDER BY description DESC;
+
+-- Results (NULL values appear last in DESC):
+-- product_id | product_name  | description
+-- -----------|---------------|----------------
+-- 1008       | Smart Device  | Premium quality
+-- 1001       | Widget A      | Advanced widget
+-- 1003       | Component C   | NULL
+-- 1009       | Part Z        | NULL
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting ORDER BY (results in unpredictable order)
+-- SELECT * FROM products;  -- Order is not guaranteed
+
+-- CORRECT: Always use ORDER BY when order matters
+SELECT * FROM products ORDER BY product_name;
+
+
+-- WRONG: Mixing up ASC and DESC for multi-column sorts
+-- SELECT * FROM products ORDER BY category DESC, price DESC;
+-- (This might not give you what you want)
+
+-- CORRECT: Think through each column's sort direction
+SELECT * FROM products ORDER BY category ASC, price DESC;
+
+
+-- WRONG: Trying to ORDER BY a column not in SELECT (works but confusing)
+-- SELECT product_name, price FROM products ORDER BY category;
+
+-- CORRECT: Include column in SELECT if ordering by it (for clarity)
+SELECT product_name, category, price FROM products ORDER BY category;
+
+
+-- WRONG: Using column position numbers (fragile code)
+-- SELECT product_name, price FROM products ORDER BY 2;  -- Orders by price
+
+-- CORRECT: Use column names explicitly
+SELECT product_name, price FROM products ORDER BY price;
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- Exercise 1: List all products sorted by category (A-Z), then name (A-Z)
+-- SELECT product_id, product_name, category 
+-- FROM products 
+-- ORDER BY category ASC, product_name ASC;
+
+
+-- Exercise 2: Find top 10 highest value orders
+-- SELECT order_id, customer_id, total 
+-- FROM orders 
+-- ORDER BY total DESC 
+-- LIMIT 10;
+
+
+-- Exercise 3: List inventory sorted by warehouse, then quantity (lowest first)
+-- SELECT product_id, warehouse_id, quantity 
+-- FROM inventory 
+-- ORDER BY warehouse_id ASC, quantity ASC;
+
+
+-- Exercise 4: Show products in Electronics category, most expensive first
+-- SELECT product_id, product_name, price 
+-- FROM products 
+-- WHERE category = 'Electronics' 
+-- ORDER BY price DESC;
+
+
+-- Exercise 5: List pending orders, oldest first, then by highest value
+-- SELECT order_id, order_date, total 
+-- FROM
