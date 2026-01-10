@@ -1,0 +1,1103 @@
+-- ============================================================================
+-- LESSON 10: Aggregate Functions (COUNT, SUM, AVG, MIN, MAX)
+-- ============================================================================
+-- Aggregate functions perform calculations on multiple rows and return a
+-- single result. They are essential for data analysis and reporting.
+--
+-- Five main aggregate functions:
+-- COUNT() - Counts rows or non-NULL values
+-- SUM()   - Adds up numeric values
+-- AVG()   - Calculates average (mean) of numeric values
+-- MIN()   - Finds minimum/smallest value
+-- MAX()   - Finds maximum/largest value
+--
+-- Why they matter in supply chain:
+-- - Total inventory value across all warehouses
+-- - Average order processing time
+-- - Maximum order size for capacity planning
+-- - Count of active suppliers
+-- - Minimum stock levels for reorder alerts
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: COUNT() - Counting Records
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Count total number of products
+-- Basic counting
+
+SELECT COUNT(*) AS total_products
+FROM products;
+
+-- Results:
+-- total_products
+-- --------------
+-- 1250
+--
+-- Use case: How many products do we sell?
+-- COUNT(*) counts all rows, including those with NULL values
+
+
+-- Example 2: Count products in specific category
+-- Count with filter
+
+SELECT COUNT(*) AS electronics_count
+FROM products
+WHERE category = 'Electronics';
+
+-- Results:
+-- electronics_count
+-- -----------------
+-- 450
+--
+-- Use case: Category size for catalog organization
+
+
+-- Example 3: Count orders by status
+
+SELECT COUNT(*) AS pending_orders
+FROM orders
+WHERE status = 'Pending';
+
+-- Results:
+-- pending_orders
+-- --------------
+-- 87
+--
+-- Use case: Operations dashboard - how many orders need processing?
+
+
+-- Example 4: Count non-NULL values
+-- COUNT(column_name) only counts non-NULL values
+
+SELECT 
+    COUNT(*) AS total_products,
+    COUNT(description) AS products_with_description,
+    COUNT(supplier_id) AS products_with_supplier
+FROM products;
+
+-- Results:
+-- total_products | products_with_description | products_with_supplier
+-- ---------------|---------------------------|------------------------
+-- 1250           | 1087                      | 1195
+--
+-- Use case: Data quality assessment
+-- Shows: 1250 total products, 163 missing descriptions, 55 without suppliers
+
+
+-- Example 5: Count distinct values
+-- How many unique customers placed orders?
+
+SELECT COUNT(DISTINCT customer_id) AS unique_customers
+FROM orders;
+
+-- Results:
+-- unique_customers
+-- ----------------
+-- 456
+--
+-- Use case: Customer base size
+-- Different from total orders (same customer can order multiple times)
+
+
+-- Example 6: Count distinct suppliers
+
+SELECT COUNT(DISTINCT supplier_id) AS active_suppliers
+FROM products
+WHERE supplier_id IS NOT NULL;
+
+-- Results:
+-- active_suppliers
+-- ----------------
+-- 45
+--
+-- Use case: Supplier diversity analysis
+-- How many suppliers are we sourcing from?
+
+
+-- Example 7: Count orders in date range
+
+SELECT COUNT(*) AS january_orders
+FROM orders
+WHERE order_date BETWEEN '2024-01-01' AND '2024-01-31';
+
+-- Results:
+-- january_orders
+-- --------------
+-- 523
+--
+-- Use case: Monthly sales volume tracking
+
+
+-- Example 8: Count out-of-stock items
+
+SELECT COUNT(*) AS out_of_stock_count
+FROM inventory
+WHERE quantity = 0;
+
+-- Results:
+-- out_of_stock_count
+-- ------------------
+-- 34
+--
+-- Use case: Stock availability monitoring
+-- Critical metric for customer satisfaction
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: SUM() - Totaling Numeric Values
+-- ----------------------------------------------------------------------------
+
+-- Example 9: Total inventory quantity across all warehouses
+-- Sum of all units in stock
+
+SELECT SUM(quantity) AS total_units_in_stock
+FROM inventory;
+
+-- Results:
+-- total_units_in_stock
+-- --------------------
+-- 45780
+--
+-- Use case: Total inventory units across entire network
+-- Master inventory count
+
+
+-- Example 10: Total inventory value
+-- Calculate total value of all inventory
+
+SELECT SUM(i.quantity * p.price) AS total_inventory_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id;
+
+-- Results:
+-- total_inventory_value
+-- ---------------------
+-- 3875432.50
+--
+-- Use case: Financial reporting - asset valuation
+-- Total dollar value tied up in inventory
+
+
+-- Example 11: Total revenue from orders
+
+SELECT SUM(total) AS total_revenue
+FROM orders
+WHERE status = 'Delivered';
+
+-- Results:
+-- total_revenue
+-- -------------
+-- 2450678.90
+--
+-- Use case: Revenue reporting
+-- Only counting completed/delivered orders
+
+
+-- Example 12: Total revenue for specific period
+
+SELECT SUM(total) AS january_revenue
+FROM orders
+WHERE order_date BETWEEN '2024-01-01' AND '2024-01-31'
+  AND status = 'Delivered';
+
+-- Results:
+-- january_revenue
+-- ---------------
+-- 245890.50
+--
+-- Use case: Monthly financial reporting
+
+
+-- Example 13: Sum with WHERE condition
+-- Total value of pending orders
+
+SELECT SUM(total) AS pending_order_value
+FROM orders
+WHERE status = 'Pending';
+
+-- Results:
+-- pending_order_value
+-- -------------------
+-- 125670.25
+--
+-- Use case: Pipeline value - revenue about to be realized
+-- Orders not yet fulfilled
+
+
+-- Example 14: Sum inventory by specific warehouse
+
+SELECT SUM(quantity) AS warehouse_total
+FROM inventory
+WHERE warehouse_id = 'WH01';
+
+-- Results:
+-- warehouse_total
+-- ---------------
+-- 8950
+--
+-- Use case: Individual warehouse stock levels
+
+
+-- Example 15: Total quantity sold (from order details)
+
+SELECT SUM(quantity) AS total_units_sold
+FROM order_details
+WHERE order_date >= '2024-01-01';
+
+-- Results:
+-- total_units_sold
+-- ----------------
+-- 12450
+--
+-- Use case: Sales volume analysis
+-- How many units moved in a period?
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: AVG() - Calculating Averages
+-- ----------------------------------------------------------------------------
+
+-- Example 16: Average product price
+
+SELECT AVG(price) AS average_product_price
+FROM products;
+
+-- Results:
+-- average_product_price
+-- ---------------------
+-- 125.45
+--
+-- Use case: Pricing strategy analysis
+-- Understanding your average price point
+
+
+-- Example 17: Average order value (AOV)
+-- Critical e-commerce metric
+
+SELECT AVG(total) AS average_order_value
+FROM orders
+WHERE status = 'Delivered';
+
+-- Results:
+-- average_order_value
+-- -------------------
+-- 468.50
+--
+-- Use case: Customer value analysis
+-- Average amount per order
+
+
+-- Example 18: Average order value by status
+
+SELECT AVG(total) AS avg_pending_order_value
+FROM orders
+WHERE status = 'Pending';
+
+-- Results:
+-- avg_pending_order_value
+-- -----------------------
+-- 512.75
+--
+-- Use case: Understanding order patterns by status
+
+
+-- Example 19: Average inventory quantity
+
+SELECT AVG(quantity) AS average_stock_level
+FROM inventory
+WHERE quantity > 0;  -- Excluding out-of-stock
+
+-- Results:
+-- average_stock_level
+-- -------------------
+-- 87.5
+--
+-- Use case: Inventory management baseline
+-- Typical stock level per product
+
+
+-- Example 20: Average lead time
+-- Time between order and delivery
+
+SELECT AVG(DATEDIFF(delivery_date, order_date)) AS avg_lead_time_days
+FROM orders
+WHERE delivery_date IS NOT NULL
+  AND order_date >= '2024-01-01';
+
+-- Results:
+-- avg_lead_time_days
+-- ------------------
+-- 4.8
+--
+-- Use case: Performance KPI
+-- How long does fulfillment typically take?
+
+
+-- Example 21: Average product rating by supplier
+
+SELECT AVG(rating) AS average_rating
+FROM products
+WHERE supplier_id = 501
+  AND rating IS NOT NULL;
+
+-- Results:
+-- average_rating
+-- --------------
+-- 4.3
+--
+-- Use case: Supplier quality assessment
+
+
+-- Example 22: Average order processing time
+-- From order to shipment
+
+SELECT AVG(DATEDIFF(ship_date, order_date)) AS avg_processing_days
+FROM orders
+WHERE ship_date IS NOT NULL
+  AND order_date >= '2024-01-01';
+
+-- Results:
+-- avg_processing_days
+-- -------------------
+-- 1.6
+--
+-- Use case: Operations efficiency metric
+-- How quickly we process orders
+
+
+-- Example 23: Average discount amount
+
+SELECT AVG(discount) AS average_discount
+FROM orders
+WHERE discount IS NOT NULL
+  AND discount > 0;
+
+-- Results:
+-- average_discount
+-- ----------------
+-- 45.75
+--
+-- Use case: Promotional effectiveness
+-- Typical discount amount when discounts are applied
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: MIN() - Finding Minimum Values
+-- ----------------------------------------------------------------------------
+
+-- Example 24: Cheapest product
+
+SELECT MIN(price) AS lowest_price
+FROM products;
+
+-- Results:
+-- lowest_price
+-- ------------
+-- 8.75
+--
+-- Use case: Budget product identification
+-- Entry-level price point
+
+
+-- Example 25: Minimum order value
+
+SELECT MIN(total) AS smallest_order
+FROM orders;
+
+-- Results:
+-- smallest_order
+-- --------------
+-- 15.50
+--
+-- Use case: Understanding order size distribution
+-- Smallest transaction
+
+
+-- Example 26: Lowest stock level (excluding zero)
+
+SELECT MIN(quantity) AS minimum_stock
+FROM inventory
+WHERE quantity > 0;
+
+-- Results:
+-- minimum_stock
+-- -------------
+-- 3
+--
+-- Use case: Reorder urgency
+-- What's the lowest non-zero stock we have?
+
+
+-- Example 27: Earliest order date
+
+SELECT MIN(order_date) AS first_order_date
+FROM orders;
+
+-- Results:
+-- first_order_date
+-- ----------------
+-- 2023-01-15
+--
+-- Use case: Business history
+-- When did we start taking orders?
+
+
+-- Example 28: Minimum lead time
+-- Best-case delivery time
+
+SELECT MIN(DATEDIFF(delivery_date, order_date)) AS fastest_delivery
+FROM orders
+WHERE delivery_date IS NOT NULL;
+
+-- Results:
+-- fastest_delivery
+-- ----------------
+-- 1
+--
+-- Use case: Best performance benchmark
+-- Fastest we've ever delivered
+
+
+-- Example 29: Lowest supplier rating
+
+SELECT MIN(rating) AS lowest_supplier_rating
+FROM suppliers
+WHERE rating IS NOT NULL;
+
+-- Results:
+-- lowest_supplier_rating
+-- ----------------------
+-- 3.2
+--
+-- Use case: Quality control
+-- Identifying underperforming suppliers
+
+
+-- Example 30: Minimum warehouse capacity
+
+SELECT MIN(capacity) AS smallest_warehouse
+FROM warehouses;
+
+-- Results:
+-- smallest_warehouse
+-- ------------------
+-- 25000
+--
+-- Use case: Capacity planning
+-- Understanding facility size range
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: MAX() - Finding Maximum Values
+-- ----------------------------------------------------------------------------
+
+-- Example 31: Most expensive product
+
+SELECT MAX(price) AS highest_price
+FROM products;
+
+-- Results:
+-- highest_price
+-- -------------
+-- 3999.99
+--
+-- Use case: Premium product identification
+-- Top-tier price point
+
+
+-- Example 32: Largest order value
+
+SELECT MAX(total) AS largest_order
+FROM orders;
+
+-- Results:
+-- largest_order
+-- -------------
+-- 25670.50
+--
+-- Use case: VIP customer analysis
+-- Biggest single transaction
+
+
+-- Example 33: Maximum inventory quantity
+-- Highest stock level for any product
+
+SELECT MAX(quantity) AS highest_stock
+FROM inventory;
+
+-- Results:
+-- highest_stock
+-- -------------
+-- 2450
+--
+-- Use case: Overstock identification
+-- Potential excess inventory
+
+
+-- Example 34: Most recent order date
+
+SELECT MAX(order_date) AS latest_order_date
+FROM orders;
+
+-- Results:
+-- latest_order_date
+-- -----------------
+-- 2024-01-25
+--
+-- Use case: System activity monitoring
+-- When was the last order placed?
+
+
+-- Example 35: Maximum lead time
+-- Worst-case delivery time
+
+SELECT MAX(DATEDIFF(delivery_date, order_date)) AS longest_delivery
+FROM orders
+WHERE delivery_date IS NOT NULL;
+
+-- Results:
+-- longest_delivery
+-- ----------------
+-- 15
+--
+-- Use case: Service level monitoring
+-- Worst performance case
+
+
+-- Example 36: Highest supplier rating
+
+SELECT MAX(rating) AS best_supplier_rating
+FROM suppliers
+WHERE rating IS NOT NULL;
+
+-- Results:
+-- best_supplier_rating
+-- --------------------
+-- 4.9
+--
+-- Use case: Best-in-class benchmark
+-- Top performing supplier
+
+
+-- Example 37: Maximum warehouse capacity
+
+SELECT MAX(capacity) AS largest_warehouse
+FROM warehouses;
+
+-- Results:
+-- largest_warehouse
+-- -----------------
+-- 250000
+--
+-- Use case: Network capacity planning
+-- Biggest facility size
+
+
+-- Example 38: Maximum order quantity for a single product
+-- Largest single-item order
+
+SELECT MAX(quantity) AS max_order_quantity
+FROM order_details;
+
+-- Results:
+-- max_order_quantity
+-- ------------------
+-- 500
+--
+-- Use case: Capacity planning
+-- Largest individual line item ever ordered
+
+
+-- ----------------------------------------------------------------------------
+-- PART 6: COMBINING MULTIPLE AGGREGATES
+-- ----------------------------------------------------------------------------
+
+-- Example 39: Complete product statistics
+
+SELECT 
+    COUNT(*) AS total_products,
+    MIN(price) AS cheapest,
+    MAX(price) AS most_expensive,
+    AVG(price) AS average_price,
+    SUM(price) AS sum_of_all_prices
+FROM products;
+
+-- Results:
+-- total_products | cheapest | most_expensive | average_price | sum_of_all_prices
+-- ---------------|----------|----------------|---------------|-------------------
+-- 1250           | 8.75     | 3999.99        | 125.45        | 156812.50
+--
+-- Use case: Comprehensive product pricing overview
+-- All key metrics in one query
+
+
+-- Example 40: Order statistics dashboard
+
+SELECT 
+    COUNT(*) AS total_orders,
+    COUNT(DISTINCT customer_id) AS unique_customers,
+    MIN(total) AS smallest_order,
+    MAX(total) AS largest_order,
+    AVG(total) AS average_order_value,
+    SUM(total) AS total_revenue
+FROM orders
+WHERE status = 'Delivered';
+
+-- Results:
+-- total_orders | unique_customers | smallest_order | largest_order | average_order_value | total_revenue
+-- -------------|------------------|----------------|---------------|---------------------|---------------
+-- 5234         | 456              | 15.50          | 25670.50      | 468.50              | 2450678.90
+--
+-- Use case: Executive dashboard
+-- Complete sales overview at a glance
+
+
+-- Example 41: Inventory health metrics
+
+SELECT 
+    COUNT(*) AS total_sku_locations,
+    COUNT(DISTINCT product_id) AS unique_products,
+    SUM(quantity) AS total_units,
+    AVG(quantity) AS avg_units_per_location,
+    MIN(quantity) AS min_stock,
+    MAX(quantity) AS max_stock,
+    COUNT(CASE WHEN quantity = 0 THEN 1 END) AS out_of_stock_count
+FROM inventory;
+
+-- Results:
+-- total_sku_locations | unique_products | total_units | avg_units_per_location | min_stock | max_stock | out_of_stock_count
+-- --------------------|-----------------|-------------|------------------------|-----------|-----------|-------------------
+-- 3450                | 1200            | 45780       | 13.3                   | 0         | 2450      | 34
+--
+-- Use case: Inventory management dashboard
+-- Complete stock overview
+
+
+-- Example 42: Financial summary with calculations
+
+SELECT 
+    COUNT(*) AS total_orders,
+    SUM(total) AS gross_revenue,
+    SUM(discount) AS total_discounts,
+    SUM(total - COALESCE(discount, 0)) AS net_revenue,
+    AVG(total - COALESCE(discount, 0)) AS avg_net_order_value
+FROM orders
+WHERE status IN ('Delivered', 'Shipped')
+  AND order_date >= '2024-01-01';
+
+-- Results:
+-- total_orders | gross_revenue | total_discounts | net_revenue | avg_net_order_value
+-- -------------|---------------|-----------------|-------------|--------------------
+-- 523          | 245890.50     | 15670.25        | 230220.25   | 440.27
+--
+-- Use case: Monthly financial reporting
+-- Revenue with discount impact
+
+
+-- Example 43: Supplier performance metrics
+
+SELECT 
+    COUNT(DISTINCT supplier_id) AS total_suppliers,
+    AVG(rating) AS average_rating,
+    MIN(rating) AS lowest_rating,
+    MAX(rating) AS highest_rating,
+    COUNT(CASE WHEN rating >= 4.5 THEN 1 END) AS premium_suppliers
+FROM suppliers
+WHERE rating IS NOT NULL;
+
+-- Results:
+-- total_suppliers | average_rating | lowest_rating | highest_rating | premium_suppliers
+-- ----------------|----------------|---------------|----------------|------------------
+-- 45              | 4.2            | 3.2           | 4.9            | 18
+--
+-- Use case: Supplier quality dashboard
+-- Understanding supplier base quality
+
+
+-- Example 44: Warehouse utilization summary
+
+SELECT 
+    COUNT(*) AS total_warehouses,
+    SUM(capacity) AS total_capacity,
+    SUM(current_usage) AS total_used,
+    AVG(current_usage * 100.0 / capacity) AS avg_utilization_percent,
+    MIN(capacity) AS smallest_warehouse,
+    MAX(capacity) AS largest_warehouse
+FROM warehouses;
+
+-- Results:
+-- total_warehouses | total_capacity | total_used | avg_utilization_percent | smallest_warehouse | largest_warehouse
+-- -----------------|----------------|------------|-------------------------|--------------------|-----------------
+-- 12               | 1450000        | 892000     | 61.5                    | 25000              | 250000
+--
+-- Use case: Network capacity planning
+-- Overall warehouse network health
+
+
+-- Example 45: Lead time analysis
+
+SELECT 
+    COUNT(*) AS completed_orders,
+    MIN(DATEDIFF(delivery_date, order_date)) AS fastest_delivery,
+    MAX(DATEDIFF(delivery_date, order_date)) AS slowest_delivery,
+    AVG(DATEDIFF(delivery_date, order_date)) AS avg_delivery_days,
+    COUNT(CASE WHEN DATEDIFF(delivery_date, order_date) <= 3 THEN 1 END) AS fast_deliveries,
+    COUNT(CASE WHEN DATEDIFF(delivery_date, order_date) > 7 THEN 1 END) AS slow_deliveries
+FROM orders
+WHERE delivery_date IS NOT NULL
+  AND order_date >= '2024-01-01';
+
+-- Results:
+-- completed_orders | fastest_delivery | slowest_delivery | avg_delivery_days | fast_deliveries | slow_deliveries
+-- -----------------|------------------|------------------|-------------------|-----------------|----------------
+-- 498              | 1                | 15               | 4.8               | 312             | 23
+--
+-- Use case: Operations performance review
+-- Delivery speed analysis
+
+
+-- ----------------------------------------------------------------------------
+-- PART 7: AGGREGATES WITH NULL HANDLING
+-- ----------------------------------------------------------------------------
+
+-- Example 46: Understanding NULL in aggregates
+-- Most aggregates ignore NULL values (except COUNT(*))
+
+SELECT 
+    COUNT(*) AS total_rows,
+    COUNT(discount) AS rows_with_discount,
+    SUM(discount) AS total_discount_amount,
+    AVG(discount) AS average_discount_when_applied,
+    MIN(discount) AS smallest_discount,
+    MAX(discount) AS largest_discount
+FROM orders;
+
+-- Results:
+-- total_rows | rows_with_discount | total_discount_amount | average_discount_when_applied | smallest_discount | largest_discount
+-- -----------|--------------------|----------------------|-------------------------------|-------------------|------------------
+-- 5234       | 1456               | 65432.50             | 44.93                         | 5.00              | 250.00
+--
+-- Explanation:
+-- - COUNT(*) = 5234 (all orders)
+-- - COUNT(discount) = 1456 (only orders with non-NULL discount)
+-- - AVG(discount) = 44.93 (average of 1456 values, not 5234)
+-- - 3778 orders had NULL discount (no discount applied)
+
+
+-- Example 47: Using COALESCE for inclusive averages
+-- Include NULL values as zero
+
+SELECT 
+    AVG(discount) AS avg_excluding_null,
+    AVG(COALESCE(discount, 0)) AS avg_including_null_as_zero
+FROM orders;
+
+-- Results:
+-- avg_excluding_null | avg_including_null_as_zero
+-- -------------------|----------------------------
+-- 44.93              | 12.50
+--
+-- Use case: Different business questions
+-- First: "When we give discounts, how much typically?"
+-- Second: "Across all orders, what's the average discount?"
+
+
+-- Example 48: Counting NULL vs non-NULL
+
+SELECT 
+    COUNT(*) AS total_products,
+    COUNT(description) AS have_description,
+    COUNT(*) - COUNT(description) AS missing_description,
+    COUNT(supplier_id) AS have_supplier,
+    COUNT(*) - COUNT(supplier_id) AS missing_supplier
+FROM products;
+
+-- Results:
+-- total_products | have_description | missing_description | have_supplier | missing_supplier
+-- ---------------|------------------|---------------------|---------------|------------------
+-- 1250           | 1087             | 163                 | 1195          | 55
+--
+-- Use case: Data quality monitoring
+-- Identifying incomplete records
+
+
+-- ----------------------------------------------------------------------------
+-- PART 8: CALCULATED AGGREGATES
+-- ----------------------------------------------------------------------------
+
+-- Example 49: Inventory value by product
+-- Aggregate of calculated values
+
+SELECT SUM(i.quantity * p.price) AS total_inventory_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE i.quantity > 0;
+
+-- Results:
+-- total_inventory_value
+-- ---------------------
+-- 3875432.50
+--
+-- Use case: Asset valuation
+-- Total dollar value in inventory (excluding out-of-stock)
+
+
+-- Example 50: Average order fulfillment time
+
+SELECT AVG(DATEDIFF(ship_date, order_date)) AS avg_fulfillment_hours
+FROM orders
+WHERE ship_date IS NOT NULL
+  AND order_date >= '2024-01-01';
+
+-- Results:
+-- avg_fulfillment_hours
+-- ---------------------
+-- 1.6
+--
+-- Use case: Operations KPI
+-- How long from order to shipment?
+
+
+-- Example 51: Percentage calculations with aggregates
+
+SELECT 
+    COUNT(*) AS total_orders,
+    COUNT(CASE WHEN status = 'Delivered' THEN 1 END) AS delivered_count,
+    ROUND(COUNT(CASE WHEN status = 'Delivered' THEN 1 END) * 100.0 / COUNT(*), 2) AS delivery_rate_percent
+FROM orders;
+
+-- Results:
+-- total_orders | delivered_count | delivery_rate_percent
+-- -------------|-----------------|----------------------
+-- 5234         | 4567            | 87.25
+--
+-- Use case: Service level tracking
+-- What percentage of orders are successfully delivered?
+
+
+-- Example 52: Weighted average calculation
+
+SELECT 
+    SUM(i.quantity * p.price) / SUM(i.quantity) AS weighted_avg_price
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE i.quantity > 0;
+
+-- Results:
+-- weighted_avg_price
+-- ------------------
+-- 84.63
+--
+-- Use case: Actual average price weighted by inventory quantity
+-- Different from simple AVG(price) - considers stock levels
+
+
+-- Example 53: Revenue per order
+
+SELECT 
+    SUM(total) AS total_revenue,
+    COUNT(*) AS number_of_orders,
+    SUM(total) / COUNT(*) AS revenue_per_order
+FROM orders
+WHERE status = 'Delivered';
+
+-- Results:
+-- total_revenue | number_of_orders | revenue_per_order
+-- --------------|------------------|------------------
+-- 2450678.90    | 5234             | 468.50
+--
+-- Use case: Business metrics
+-- Same as AVG(total) but shown with component parts
+
+
+-- Example 54: Stock turnover calculation
+
+SELECT 
+    SUM(od.quantity) AS units_sold_last_90_days,
+    AVG(i.quantity) AS avg_inventory_level,
+    SUM(od.quantity) / AVG(i.quantity) AS inventory_turns
+FROM order_details od
+JOIN inventory i ON od.product_id = i.product_id
+WHERE od.order_date >= DATE_SUB(CURRENT_DATE, INTERVAL 90 DAY);
+
+-- Results:
+-- units_sold_last_90_days | avg_inventory_level | inventory_turns
+-- ------------------------|---------------------|----------------
+-- 11234                   | 87.5                | 128.4
+--
+-- Use case: Inventory efficiency
+-- How many times inventory turns over in 90 days
+
+
+-- ----------------------------------------------------------------------------
+-- PART 9: CONDITIONAL AGGREGATES
+-- ----------------------------------------------------------------------------
+
+-- Example 55: Count with conditions using CASE
+
+SELECT 
+    COUNT(*) AS total_orders,
+    COUNT(CASE WHEN status = 'Pending' THEN 1 END) AS pending_orders,
+    COUNT(CASE WHEN status = 'Processing' THEN 1 END) AS processing_orders,
+    COUNT(CASE WHEN status = 'Shipped' THEN 1 END) AS shipped_orders,
+    COUNT(CASE WHEN status = 'Delivered' THEN 1 END) AS delivered_orders,
+    COUNT(CASE WHEN status = 'Cancelled' THEN 1 END) AS cancelled_orders
+FROM orders;
+
+-- Results:
+-- total_orders | pending_orders | processing_orders | shipped_orders | delivered_orders | cancelled_orders
+-- -------------|----------------|-------------------|----------------|------------------|------------------
+-- 5234         | 87             | 156               | 234            | 4567             | 190
+--
+-- Use case: Order status dashboard
+-- All status counts in single query
+
+
+-- Example 56: Sum with conditions
+
+SELECT 
+    SUM(total) AS total_revenue,
+    SUM(CASE WHEN total > 1000 THEN total ELSE 0 END) AS large_order_revenue,
+    SUM(CASE WHEN total <= 1000 THEN total ELSE 0 END) AS small_order_revenue
+FROM orders
+WHERE status = 'Delivered';
+
+-- Results:
+-- total_revenue | large_order_revenue | small_order_revenue
+-- --------------|---------------------|--------------------
+-- 2450678.90    | 1567890.50          | 882788.40
+--
+-- Use case: Revenue segmentation
+-- Breaking down revenue by order size
+
+
+-- Example 57: Average by condition
+
+SELECT 
+    AVG(CASE WHEN category = 'Electronics' THEN price END) AS avg_electronics_price,
+    AVG(CASE WHEN category = 'Tools' THEN price END) AS avg_tools_price,
+    AVG(CASE WHEN category = 'Parts' THEN price END) AS avg_parts_price
+FROM products;
+
+-- Results:
+-- avg_electronics_price | avg_tools_price | avg_parts_price
+-- ----------------------|-----------------|----------------
+-- 156.75                | 89.50           | 45.25
+--
+-- Use case: Category pricing analysis
+-- All in one query instead of three separate queries
+
+
+-- Example 58: Multiple metrics by threshold
+
+SELECT 
+    COUNT(CASE WHEN quantity = 0 THEN 1 END) AS out_of_stock,
+    COUNT(CASE WHEN quantity > 0 AND quantity < 10 THEN 1 END) AS critical_low,
+    COUNT(CASE WHEN quantity >= 10 AND quantity < 50 THEN 1 END) AS low_stock,
+    COUNT(CASE WHEN quantity >= 50 AND quantity < 100 THEN 1 END) AS adequate_stock,
+    COUNT(CASE WHEN quantity >= 100 THEN 1 END) AS high_stock
+FROM inventory;
+
+-- Results:
+-- out_of_stock | critical_low | low_stock | adequate_stock | high_stock
+-- -------------|--------------|-----------|----------------|------------
+-- 34           | 156          | 487       | 892            | 1881
+--
+-- Use case: Stock level distribution
+-- Understanding inventory health across all levels
+
+
+-- ----------------------------------------------------------------------------
+-- PART 10: REAL-WORLD SUPPLY CHAIN ANALYTICS
+-- ----------------------------------------------------------------------------
+
+-- Example 59: Complete inventory valuation report
+
+SELECT 
+    COUNT(DISTINCT i.product_id) AS unique_products_in_stock,
+    COUNT(DISTINCT i.warehouse_id) AS warehouses_with_inventory,
+    SUM(i.quantity) AS total_units,
+    SUM(i.quantity * p.price) AS total_value,
+    AVG(i.quantity * p.price) AS avg_value_per_sku,
+    MIN(i.quantity * p.price) AS min_sku_value,
+    MAX(i.quantity * p.price) AS max_sku_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE i.quantity > 0;
+
+-- Results:
+-- unique_products_in_stock | warehouses_with_inventory | total_units | total_value | avg_value_per_sku | min_sku_value | max_sku_value
+-- -------------------------|---------------------------|-------------|-------------|-------------------|---------------|---------------
+-- 1216                     | 12                        | 45780       | 3875432.50  | 1122.45           | 26.25         | 978997.50
+--
+-- Use case: Financial reporting
+-- Complete inventory asset summary
+
+
+-- Example 60: Customer lifetime value basics
+
+SELECT 
+    COUNT(DISTINCT customer_id) AS total_customers,
+    COUNT(*) AS total_orders,
+    SUM(total) AS total_revenue,
+    AVG(total) AS average_order_value,
+    COUNT(*) * 1.0 / COUNT(DISTINCT customer_id) AS orders_per_customer,
+    SUM(total) / COUNT(DISTINCT customer_id) AS revenue_per_customer
+FROM orders
+WHERE status IN ('Delivered', 'Shipped');
+
+-- Results:
+-- total_customers | total_orders | total_revenue | average_order_value | orders_per_customer | revenue_per_customer
+-- ----------------|--------------|---------------|---------------------|---------------------|---------------------
+-- 456             | 5234         | 2450678.90    | 468.50              | 11.5                | 5373.85
+--
+-- Use case: Customer analytics
+-- Understanding customer value and behavior
+
+
+-- ============================================================================
+-- AGGREGATE FUNCTIONS SUMMARY
+-- ============================================================================
+
+-- COUNT(*) - Counts all rows
+-- COUNT(column) - Counts non-NULL values in column
+-- COUNT(DISTINCT column) - Counts unique non-NULL values
+-- SUM(column) - Adds up all numeric values (ignores NULL)
+-- AVG(column) - Calculates mean of numeric values (ignores NULL)
+-- MIN(column) - Finds smallest value (works with numbers, dates, text)
+-- MAX(column) - Finds largest value (works with numbers, dates, text)
+
+
+-- ============================================================================
+-- IMPORTANT NOTES
+-- ============================================================================
+
+-- 1. All aggregate functions (except COUNT(*)) ignore NULL values
+-- 2. AVG() ignores NULLs - use COALESCE if you want to treat NULL as 0
+-- 3. COUNT(*) counts all rows; COUNT(column) counts non-NULL values
+-- 4. You can combine aggregates in one SELECT
+-- 5. Aggregates work on filtered data (after WHERE clause)
+-- 6. Use DISTINCT inside aggregates for unique counts: COUNT(DISTINCT customer_id)
+-- 7. Aggregates return NULL if no rows match (except COUNT which returns 0)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Mixing aggregate and non-aggregate columns without GROUP BY
+-- SELECT category, AVG(price) FROM products;
+-- Error: category is not aggregated but AVG(price) is
+
+-- CORRECT: Either aggregate all columns or use GROUP BY (next lesson)
+SELECT AVG(price) FROM products;
+
+
+-- WRONG: Using aggregate in WHERE clause
+-- SELECT * FROM products WHERE price > AVG(price);
+-- Error: Can't use aggregates in WHERE
+
+-- CORRECT: Use subquery or HAVING (covered in later lessons)
+SELECT * FROM products WHERE price > (SELECT AVG(price) FROM products);
