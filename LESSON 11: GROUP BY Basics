@@ -1,0 +1,870 @@
+-- ============================================================================
+-- LESSON 11: GROUP BY Basics
+-- ============================================================================
+-- GROUP BY organizes rows into groups based on column values, then applies
+-- aggregate functions to each group separately.
+--
+-- Without GROUP BY: Aggregates calculate across ALL rows
+-- With GROUP BY: Aggregates calculate for EACH group
+--
+-- Structure:
+-- SELECT column, AGGREGATE(column)
+-- FROM table
+-- WHERE filter (optional)
+-- GROUP BY column
+--
+-- Why this matters in supply chain:
+-- - Inventory levels BY warehouse
+-- - Sales BY product category
+-- - Orders BY month or customer
+-- - Revenue BY region
+-- - Performance BY supplier
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: BASIC GROUP BY WITH SINGLE COLUMN
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Count products in each category
+-- Instead of total count, get count per category
+
+SELECT 
+    category,
+    COUNT(*) AS product_count
+FROM products
+GROUP BY category;
+
+-- Results:
+-- category    | product_count
+-- ------------|---------------
+-- Electronics | 450
+-- Tools       | 387
+-- Parts       | 289
+-- Medical     | 124
+--
+-- Use case: Category size analysis
+-- How many products in each category?
+-- Each category becomes one row in results
+
+
+-- Example 2: Inventory quantity by warehouse
+-- Total units in each warehouse
+
+SELECT 
+    warehouse_id,
+    SUM(quantity) AS total_units
+FROM inventory
+GROUP BY warehouse_id;
+
+-- Results:
+-- warehouse_id | total_units
+-- -------------|-------------
+-- WH01         | 8950
+-- WH02         | 12340
+-- WH03         | 15670
+-- WH04         | 8820
+--
+-- Use case: Warehouse capacity monitoring
+-- Which warehouse has most inventory?
+
+
+-- Example 3: Total inventory value by warehouse
+
+SELECT 
+    i.warehouse_id,
+    SUM(i.quantity * p.price) AS total_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY i.warehouse_id;
+
+-- Results:
+-- warehouse_id | total_value
+-- -------------|-------------
+-- WH01         | 756890.50
+-- WH02         | 1234567.75
+-- WH03         | 1456789.25
+-- WH04         | 427185.00
+--
+-- Use case: Asset allocation by location
+-- Financial value of inventory in each warehouse
+
+
+-- Example 4: Orders by status
+-- Count how many orders in each status
+
+SELECT 
+    status,
+    COUNT(*) AS order_count
+FROM orders
+GROUP BY status;
+
+-- Results:
+-- status      | order_count
+-- ------------|-------------
+-- Pending     | 87
+-- Processing  | 156
+-- Shipped     | 234
+-- Delivered   | 4567
+-- Cancelled   | 190
+--
+-- Use case: Operations dashboard
+-- Pipeline visibility at a glance
+
+
+-- Example 5: Revenue by order status
+
+SELECT 
+    status,
+    COUNT(*) AS order_count,
+    SUM(total) AS total_revenue
+FROM orders
+GROUP BY status;
+
+-- Results:
+-- status      | order_count | total_revenue
+-- ------------|-------------|---------------
+-- Pending     | 87          | 44587.50
+-- Processing  | 156         | 78934.25
+-- Shipped     | 234         | 125678.90
+-- Delivered   | 4567        | 2450678.90
+-- Cancelled   | 190         | 45890.00
+--
+-- Use case: Revenue pipeline analysis
+-- Money at each stage of fulfillment
+
+
+-- Example 6: Products per supplier
+-- How many products does each supplier provide?
+
+SELECT 
+    supplier_id,
+    COUNT(*) AS products_supplied
+FROM products
+WHERE supplier_id IS NOT NULL
+GROUP BY supplier_id;
+
+-- Results:
+-- supplier_id | products_supplied
+-- ------------|-------------------
+-- 501         | 45
+-- 502         | 38
+-- 503         | 28
+-- 505         | 32
+-- 510         | 25
+--
+-- Use case: Supplier relationship analysis
+-- Understanding supplier portfolio size
+
+
+-- Example 7: Average product price by category
+
+SELECT 
+    category,
+    COUNT(*) AS product_count,
+    AVG(price) AS average_price,
+    MIN(price) AS cheapest,
+    MAX(price) AS most_expensive
+FROM products
+GROUP BY category;
+
+-- Results:
+-- category    | product_count | average_price | cheapest | most_expensive
+-- ------------|---------------|---------------|----------|----------------
+-- Electronics | 450           | 156.75        | 15.50    | 3999.99
+-- Tools       | 387           | 89.50         | 8.75     | 450.00
+-- Parts       | 289           | 45.25         | 5.00     | 250.00
+-- Medical     | 124           | 275.50        | 35.00    | 1200.00
+--
+-- Use case: Category pricing strategy
+-- Understanding price ranges by category
+
+
+-- Example 8: Customers by state/region
+-- Geographic customer distribution
+
+SELECT 
+    state,
+    COUNT(*) AS customer_count
+FROM customers
+GROUP BY state
+ORDER BY customer_count DESC;
+
+-- Results:
+-- state | customer_count
+-- ------|----------------
+-- CA    | 89
+-- NY    | 67
+-- TX    | 54
+-- FL    | 48
+-- IL    | 42
+--
+-- Use case: Market presence analysis
+-- Where are our customers located?
+
+
+-- Example 9: Orders per customer
+-- Customer purchase frequency
+
+SELECT 
+    customer_id,
+    COUNT(*) AS order_count,
+    SUM(total) AS total_spent
+FROM orders
+GROUP BY customer_id
+ORDER BY total_spent DESC
+LIMIT 10;
+
+-- Results:
+-- customer_id | order_count | total_spent
+-- ------------|-------------|-------------
+-- C123        | 45          | 125000.50
+-- C456        | 38          | 98750.25
+-- C789        | 52          | 87500.00
+-- C234        | 31          | 75250.75
+-- C890        | 28          | 68900.00
+--
+-- Use case: Customer value segmentation
+-- Top customers by spending
+
+
+-- Example 10: Shipments by carrier
+-- Carrier usage analysis
+
+SELECT 
+    carrier,
+    COUNT(*) AS shipment_count,
+    AVG(DATEDIFF(delivery_date, ship_date)) AS avg_transit_days
+FROM shipments
+WHERE delivery_date IS NOT NULL
+GROUP BY carrier;
+
+-- Results:
+-- carrier | shipment_count | avg_transit_days
+-- --------|----------------|------------------
+-- FedEx   | 1234           | 2.8
+-- UPS     | 1567           | 3.2
+-- USPS    | 890            | 4.5
+-- DHL     | 456            | 3.0
+--
+-- Use case: Carrier performance comparison
+-- Which carriers we use most and their speed
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: GROUP BY WITH MULTIPLE COLUMNS
+-- ----------------------------------------------------------------------------
+
+-- Example 11: Inventory by warehouse AND category
+-- Two-level grouping
+
+SELECT 
+    i.warehouse_id,
+    p.category,
+    COUNT(DISTINCT i.product_id) AS unique_products,
+    SUM(i.quantity) AS total_units
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY i.warehouse_id, p.category
+ORDER BY i.warehouse_id, p.category;
+
+-- Results:
+-- warehouse_id | category    | unique_products | total_units
+-- -------------|-------------|-----------------|-------------
+-- WH01         | Electronics | 123             | 2450
+-- WH01         | Parts       | 89              | 3200
+-- WH01         | Tools       | 145             | 3300
+-- WH02         | Electronics | 156             | 4500
+-- WH02         | Parts       | 67              | 2340
+-- WH02         | Tools       | 178             | 5500
+--
+-- Use case: Detailed inventory distribution
+-- What categories are in each warehouse?
+
+
+-- Example 12: Orders by month and status
+-- Time-based + status grouping
+
+SELECT 
+    DATE_FORMAT(order_date, '%Y-%m') AS order_month,
+    status,
+    COUNT(*) AS order_count,
+    SUM(total) AS revenue
+FROM orders
+GROUP BY DATE_FORMAT(order_date, '%Y-%m'), status
+ORDER BY order_month, status;
+
+-- PostgreSQL version:
+-- SELECT 
+--     TO_CHAR(order_date, 'YYYY-MM') AS order_month,
+--     status,
+--     COUNT(*) AS order_count,
+--     SUM(total) AS revenue
+-- FROM orders
+-- GROUP BY TO_CHAR(order_date, 'YYYY-MM'), status
+-- ORDER BY order_month, status;
+
+-- Results:
+-- order_month | status      | order_count | revenue
+-- ------------|-------------|-------------|----------
+-- 2024-01     | Delivered   | 412         | 198765.50
+-- 2024-01     | Pending     | 23          | 12456.75
+-- 2024-01     | Processing  | 34          | 18934.25
+-- 2024-01     | Shipped     | 54          | 28678.90
+-- 2024-02     | Delivered   | 389         | 185432.00
+--
+-- Use case: Monthly operations tracking
+-- Order pipeline by month
+
+
+-- Example 13: Sales by category and supplier
+-- Product sourcing analysis
+
+SELECT 
+    p.category,
+    p.supplier_id,
+    COUNT(*) AS product_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM products p
+JOIN order_details od ON p.product_id = od.product_id
+GROUP BY p.category, p.supplier_id
+ORDER BY revenue DESC;
+
+-- Results:
+-- category    | supplier_id | product_count | units_sold | revenue
+-- ------------|-------------|---------------|------------|----------
+-- Electronics | 501         | 15            | 3450       | 456789.50
+-- Electronics | 502         | 12            | 2890       | 389456.75
+-- Tools       | 503         | 18            | 4567       | 345678.00
+-- Parts       | 501         | 8             | 5678       | 234567.50
+--
+-- Use case: Supplier performance by category
+-- Which suppliers drive sales in each category?
+
+
+-- Example 14: Customer orders by state and month
+-- Geographic + temporal analysis
+
+SELECT 
+    c.state,
+    DATE_FORMAT(o.order_date, '%Y-%m') AS order_month,
+    COUNT(*) AS order_count,
+    SUM(o.total) AS revenue
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.state, DATE_FORMAT(o.order_date, '%Y-%m')
+ORDER BY order_month, revenue DESC;
+
+-- Results:
+-- state | order_month | order_count | revenue
+-- ------|-------------|-------------|----------
+-- CA    | 2024-01     | 89          | 45678.90
+-- NY    | 2024-01     | 67          | 38945.50
+-- TX    | 2024-01     | 54          | 32156.75
+-- CA    | 2024-02     | 95          | 48932.00
+--
+-- Use case: Regional sales trends
+-- Which states are growing month-over-month?
+
+
+-- Example 15: Warehouse performance by category
+-- Detailed warehouse-category matrix
+
+SELECT 
+    i.warehouse_id,
+    p.category,
+    SUM(i.quantity) AS total_units,
+    SUM(i.quantity * p.price) AS inventory_value,
+    COUNT(DISTINCT i.product_id) AS sku_count
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE i.quantity > 0
+GROUP BY i.warehouse_id, p.category
+ORDER BY inventory_value DESC;
+
+-- Results:
+-- warehouse_id | category    | total_units | inventory_value | sku_count
+-- -------------|-------------|-------------|-----------------|----------
+-- WH02         | Electronics | 4500        | 567890.50       | 156
+-- WH03         | Electronics | 5670        | 489234.75       | 178
+-- WH01         | Tools       | 3300        | 298765.00       | 145
+-- WH02         | Tools       | 5500        | 456789.25       | 178
+--
+-- Use case: Strategic inventory placement
+-- Optimizing what products go in which warehouses
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: GROUP BY WITH DATE/TIME FUNCTIONS
+-- ----------------------------------------------------------------------------
+
+-- Example 16: Orders by month (time series)
+-- Monthly order volume
+
+SELECT 
+    DATE_FORMAT(order_date, '%Y-%m') AS order_month,
+    COUNT(*) AS order_count,
+    SUM(total) AS monthly_revenue,
+    AVG(total) AS avg_order_value
+FROM orders
+GROUP BY DATE_FORMAT(order_date, '%Y-%m')
+ORDER BY order_month;
+
+-- Results:
+-- order_month | order_count | monthly_revenue | avg_order_value
+-- ------------|-------------|-----------------|----------------
+-- 2023-11     | 423         | 198765.50       | 469.94
+-- 2023-12     | 534         | 245678.90       | 460.07
+-- 2024-01     | 523         | 245890.50       | 470.19
+-- 2024-02     | 498         | 234567.80       | 471.01
+--
+-- Use case: Sales trend analysis
+-- Month-over-month performance
+
+
+-- Example 17: Orders by day of week
+-- Weekly pattern analysis
+
+SELECT 
+    DAYNAME(order_date) AS day_of_week,
+    COUNT(*) AS order_count,
+    AVG(total) AS avg_order_value
+FROM orders
+GROUP BY DAYNAME(order_date), DAYOFWEEK(order_date)
+ORDER BY DAYOFWEEK(order_date);
+
+-- PostgreSQL version:
+-- SELECT 
+--     TO_CHAR(order_date, 'Day') AS day_of_week,
+--     COUNT(*) AS order_count,
+--     AVG(total) AS avg_order_value
+-- FROM orders
+-- GROUP BY TO_CHAR(order_date, 'Day'), EXTRACT(DOW FROM order_date)
+-- ORDER BY EXTRACT(DOW FROM order_date);
+
+-- Results:
+-- day_of_week | order_count | avg_order_value
+-- ------------|-------------|----------------
+-- Sunday      | 456         | 389.50
+-- Monday      | 823         | 512.75
+-- Tuesday     | 891         | 498.25
+-- Wednesday   | 945         | 523.50
+-- Thursday    | 867         | 501.30
+-- Friday      | 734         | 456.80
+-- Saturday    | 518         | 412.90
+--
+-- Use case: Staffing optimization
+-- When do most orders come in?
+
+
+-- Example 18: Orders by quarter
+-- Quarterly business reporting
+
+SELECT 
+    YEAR(order_date) AS year,
+    QUARTER(order_date) AS quarter,
+    COUNT(*) AS order_count,
+    SUM(total) AS quarterly_revenue
+FROM orders
+GROUP BY YEAR(order_date), QUARTER(order_date)
+ORDER BY year, quarter;
+
+-- Results:
+-- year | quarter | order_count | quarterly_revenue
+-- -----|---------|-------------|-------------------
+-- 2023 | 3       | 1234        | 578901.50
+-- 2023 | 4       | 1456        | 689234.75
+-- 2024 | 1       | 1521        | 734567.80
+--
+-- Use case: Executive reporting
+-- High-level business performance
+
+
+-- Example 19: Orders by year
+-- Annual performance
+
+SELECT 
+    YEAR(order_date) AS order_year,
+    COUNT(*) AS total_orders,
+    SUM(total) AS annual_revenue,
+    AVG(total) AS avg_order_value,
+    COUNT(DISTINCT customer_id) AS unique_customers
+FROM orders
+GROUP BY YEAR(order_date)
+ORDER BY order_year;
+
+-- Results:
+-- order_year | total_orders | annual_revenue | avg_order_value | unique_customers
+-- -----------|--------------|----------------|-----------------|------------------
+-- 2022       | 3456         | 1567890.50     | 453.71          | 234
+-- 2023       | 4789         | 2234567.80     | 466.67          | 389
+-- 2024       | 1521         | 734567.80      | 482.97          | 456
+--
+-- Use case: Year-over-year growth analysis
+
+
+-- Example 20: Sales by hour of day
+-- Intraday pattern analysis
+
+SELECT 
+    HOUR(order_date) AS order_hour,
+    COUNT(*) AS order_count,
+    AVG(total) AS avg_order_value
+FROM orders
+GROUP BY HOUR(order_date)
+ORDER BY order_hour;
+
+-- Results:
+-- order_hour | order_count | avg_order_value
+-- -----------|-------------|----------------
+-- 0          | 45          | 234.50
+-- 1          | 23          | 189.75
+-- ...
+-- 9          | 234         | 456.80
+-- 10         | 345         | 512.90
+-- 11         | 389         | 534.25
+-- 12         | 412         | 498.50
+--
+-- Use case: Peak hour analysis
+-- Customer service staffing
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: GROUP BY WITH CALCULATED FIELDS
+-- ----------------------------------------------------------------------------
+
+-- Example 21: Price range analysis
+-- Grouping by calculated categories
+
+SELECT 
+    CASE 
+        WHEN price < 50 THEN 'Budget'
+        WHEN price >= 50 AND price < 150 THEN 'Mid-Range'
+        WHEN price >= 150 AND price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END AS price_category,
+    COUNT(*) AS product_count,
+    AVG(price) AS avg_price,
+    SUM(price) AS total_value
+FROM products
+GROUP BY 
+    CASE 
+        WHEN price < 50 THEN 'Budget'
+        WHEN price >= 50 AND price < 150 THEN 'Mid-Range'
+        WHEN price >= 150 AND price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END
+ORDER BY avg_price;
+
+-- Results:
+-- price_category | product_count | avg_price | total_value
+-- ---------------|---------------|-----------|-------------
+-- Budget         | 456           | 28.75     | 13110.00
+-- Mid-Range      | 534           | 95.50     | 51027.00
+-- Premium        | 234           | 275.25    | 64408.50
+-- Luxury         | 26            | 1250.50   | 32513.00
+--
+-- Use case: Product portfolio analysis
+-- Understanding price tier distribution
+
+
+-- Example 22: Order size segmentation
+
+SELECT 
+    CASE 
+        WHEN total < 100 THEN 'Small'
+        WHEN total >= 100 AND total < 500 THEN 'Medium'
+        WHEN total >= 500 AND total < 1000 THEN 'Large'
+        ELSE 'Enterprise'
+    END AS order_size,
+    COUNT(*) AS order_count,
+    SUM(total) AS total_revenue,
+    AVG(total) AS avg_order_value
+FROM orders
+WHERE status = 'Delivered'
+GROUP BY 
+    CASE 
+        WHEN total < 100 THEN 'Small'
+        WHEN total >= 100 AND total < 500 THEN 'Medium'
+        WHEN total >= 500 AND total < 1000 THEN 'Large'
+        ELSE 'Enterprise'
+    END
+ORDER BY avg_order_value;
+
+-- Results:
+-- order_size | order_count | total_revenue | avg_order_value
+-- -----------|-------------|---------------|----------------
+-- Small      | 1234        | 67890.50      | 55.02
+-- Medium     | 2345        | 678901.75     | 289.49
+-- Large      | 1456        | 1023456.80    | 702.92
+-- Enterprise | 532         | 680429.85     | 1279.00
+--
+-- Use case: Revenue segmentation
+-- Where does our revenue come from?
+
+
+-- Example 23: Stock level categories by warehouse
+
+SELECT 
+    warehouse_id,
+    CASE 
+        WHEN quantity = 0 THEN 'Out of Stock'
+        WHEN quantity < 20 THEN 'Critical Low'
+        WHEN quantity < 50 THEN 'Low'
+        WHEN quantity < 100 THEN 'Adequate'
+        ELSE 'High'
+    END AS stock_level,
+    COUNT(*) AS product_count,
+    SUM(quantity) AS total_units
+FROM inventory
+GROUP BY 
+    warehouse_id,
+    CASE 
+        WHEN quantity = 0 THEN 'Out of Stock'
+        WHEN quantity < 20 THEN 'Critical Low'
+        WHEN quantity < 50 THEN 'Low'
+        WHEN quantity < 100 THEN 'Adequate'
+        ELSE 'High'
+    END
+ORDER BY warehouse_id, stock_level;
+
+-- Results:
+-- warehouse_id | stock_level   | product_count | total_units
+-- -------------|---------------|---------------|-------------
+-- WH01         | Adequate      | 89            | 6230
+-- WH01         | Critical Low  | 12            | 156
+-- WH01         | High          | 145           | 18950
+-- WH01         | Low           | 34            | 1234
+-- WH01         | Out of Stock  | 8             | 0
+--
+-- Use case: Warehouse health monitoring
+-- Stock level distribution per location
+
+
+-- Example 24: Lead time performance buckets
+
+SELECT 
+    CASE 
+        WHEN DATEDIFF(delivery_date, order_date) <= 2 THEN 'Express (1-2 days)'
+        WHEN DATEDIFF(delivery_date, order_date) <= 5 THEN 'Standard (3-5 days)'
+        WHEN DATEDIFF(delivery_date, order_date) <= 10 THEN 'Slow (6-10 days)'
+        ELSE 'Very Slow (10+ days)'
+    END AS delivery_speed,
+    COUNT(*) AS order_count,
+    AVG(DATEDIFF(delivery_date, order_date)) AS avg_days,
+    MIN(DATEDIFF(delivery_date, order_date)) AS fastest,
+    MAX(DATEDIFF(delivery_date, order_date)) AS slowest
+FROM orders
+WHERE delivery_date IS NOT NULL
+GROUP BY 
+    CASE 
+        WHEN DATEDIFF(delivery_date, order_date) <= 2 THEN 'Express (1-2 days)'
+        WHEN DATEDIFF(delivery_date, order_date) <= 5 THEN 'Standard (3-5 days)'
+        WHEN DATEDIFF(delivery_date, order_date) <= 10 THEN 'Slow (6-10 days)'
+        ELSE 'Very Slow (10+ days)'
+    END
+ORDER BY avg_days;
+
+-- Results:
+-- delivery_speed         | order_count | avg_days | fastest | slowest
+-- -----------------------|-------------|----------|---------|--------
+-- Express (1-2 days)     | 1234        | 1.8      | 1       | 2
+-- Standard (3-5 days)    | 2890        | 4.2      | 3       | 5
+-- Slow (6-10 days)       | 456         | 7.5      | 6       | 10
+-- Very Slow (10+ days)   | 23          | 12.8     | 11      | 18
+--
+-- Use case: Service level analysis
+-- How well are we meeting delivery expectations?
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: GROUP BY WITH FILTERING (WHERE vs HAVING preview)
+-- ----------------------------------------------------------------------------
+
+-- Example 25: Category sales with minimum threshold
+-- WHERE filters before grouping
+
+SELECT 
+    p.category,
+    COUNT(*) AS products_sold,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM products p
+JOIN order_details od ON p.product_id = od.product_id
+WHERE od.order_date >= '2024-01-01'  -- Filter BEFORE grouping
+GROUP BY p.category
+ORDER BY revenue DESC;
+
+-- Results:
+-- category    | products_sold | units_sold | revenue
+-- ------------|---------------|------------|----------
+-- Electronics | 234           | 4567       | 678901.50
+-- Tools       | 189           | 3456       | 345678.90
+-- Parts       | 145           | 5678       | 234567.50
+-- Medical     | 67            | 890        | 178934.25
+--
+-- Use case: Year-to-date category performance
+-- WHERE filters which orders to include
+
+
+-- Example 26: Top performing warehouses
+-- Filtering result after aggregation (preview of HAVING)
+
+SELECT 
+    warehouse_id,
+    COUNT(DISTINCT product_id) AS unique_products,
+    SUM(quantity) AS total_units,
+    SUM(quantity * price) AS inventory_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+WHERE quantity > 0
+GROUP BY warehouse_id
+ORDER BY inventory_value DESC;
+
+-- Results show all warehouses
+-- In next lesson, you'll learn HAVING to filter these results
+-- (e.g., only warehouses with inventory_value > 500000)
+
+
+-- ----------------------------------------------------------------------------
+-- PART 6: REAL-WORLD SUPPLY CHAIN ANALYTICS
+-- ----------------------------------------------------------------------------
+
+-- Example 27: Monthly sales by category trend
+
+SELECT 
+    DATE_FORMAT(od.order_date, '%Y-%m') AS month,
+    p.category,
+    COUNT(DISTINCT od.order_id) AS order_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM order_details od
+JOIN products p ON od.product_id = p.product_id
+GROUP BY DATE_FORMAT(od.order_date, '%Y-%m'), p.category
+ORDER BY month, revenue DESC;
+
+-- Results:
+-- month   | category    | order_count | units_sold | revenue
+-- --------|-------------|-------------|------------|----------
+-- 2024-01 | Electronics | 412         | 3456       | 456789.50
+-- 2024-01 | Tools       | 345         | 2890       | 289456.75
+-- 2024-01 | Parts       | 289         | 4567       | 198765.00
+-- 2024-02 | Electronics | 389         | 3234       | 434567.80
+--
+-- Use case: Category trend analysis
+-- Which categories are growing?
+
+
+-- Example 28: Customer segmentation analysis
+
+SELECT 
+    CASE 
+        WHEN total_spent < 1000 THEN 'Bronze'
+        WHEN total_spent < 5000 THEN 'Silver'
+        WHEN total_spent < 20000 THEN 'Gold'
+        ELSE 'Platinum'
+    END AS customer_tier,
+    COUNT(*) AS customer_count,
+    AVG(total_spent) AS avg_spending,
+    SUM(total_spent) AS total_revenue,
+    AVG(order_count) AS avg_orders_per_customer
+FROM (
+    SELECT 
+        customer_id,
+        COUNT(*) AS order_count,
+        SUM(total) AS total_spent
+    FROM orders
+    WHERE status = 'Delivered'
+    GROUP BY customer_id
+) customer_stats
+GROUP BY 
+    CASE 
+        WHEN total_spent < 1000 THEN 'Bronze'
+        WHEN total_spent < 5000 THEN 'Silver'
+        WHEN total_spent < 20000 THEN 'Gold'
+        ELSE 'Platinum'
+    END
+ORDER BY avg_spending;
+
+-- Results:
+-- customer_tier | customer_count | avg_spending | total_revenue | avg_orders_per_customer
+-- --------------|----------------|--------------|---------------|------------------------
+-- Bronze        | 234            | 456.75       | 106879.50     | 3.2
+-- Silver        | 156            | 2345.80      | 365944.80     | 8.5
+-- Gold          | 52             | 12456.90     | 647758.80     | 18.7
+-- Platinum      | 14             | 78934.50     | 1105083.00    | 45.3
+--
+-- Use case: VIP customer identification
+-- Understanding customer value tiers
+
+
+-- Example 29: Supplier performance scorecard
+
+SELECT 
+    s.supplier_id,
+    s.supplier_name,
+    COUNT(DISTINCT p.product_id) AS products_supplied,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue,
+    AVG(p.price) AS avg_product_price,
+    s.rating AS supplier_rating
+FROM suppliers s
+JOIN products p ON s.supplier_id = p.supplier_id
+JOIN order_details od ON p.product_id = od.product_id
+WHERE od.order_date >= '2024-01-01'
+GROUP BY s.supplier_id, s.supplier_name, s.rating
+ORDER BY revenue DESC
+LIMIT 10;
+
+-- Results:
+-- supplier_id | supplier_name     | products_supplied | units_sold | revenue    | avg_product_price | supplier_rating
+-- ------------|-------------------|-------------------|------------|------------|-------------------|----------------
+-- 501         | ABC Manufacturing | 45                | 5678       | 678901.50  | 125.50            | 4.5
+-- 502         | XYZ Components    | 38                | 4567       | 456789.75  | 89.99             | 4.8
+-- 505         | Premium Supplies  | 32                | 2890       | 445678.00  | 175.25            | 4.7
+--
+-- Use case: Strategic supplier review
+-- Top revenue-generating suppliers
+
+
+-- Example 30: ABC inventory classification
+
+SELECT 
+    category,
+    CASE 
+        WHEN revenue_rank <= 0.2 THEN 'A - High Value'
+        WHEN revenue_rank <= 0.5 THEN 'B - Medium Value'
+        ELSE 'C - Low Value'
+    END AS abc_classification,
+    COUNT(*) AS product_count,
+    SUM(inventory_value) AS total_value,
+    AVG(inventory_value) AS avg_value_per_product
+FROM (
+    SELECT 
+        p.category,
+        p.product_id,
+        i.quantity * p.price AS inventory_value,
+        PERCENT_RANK() OVER (ORDER BY i.quantity * p.price DESC) AS revenue_rank
+    FROM inventory i
+    JOIN products p ON i.product_id = p.product_id
+    WHERE i.quantity > 0
+) ranked_products
+GROUP BY 
+    category,
+    CASE 
+        WHEN revenue_rank <= 0.2 THEN 'A - High Value'
+        WHEN revenue_rank <= 0.5 THEN 'B - Medium Value'
+        ELSE 'C - Low Value'
+    END
+ORDER BY category, abc_classification;
+
+-- Results:
+-- category    | abc_classification | product_count | total_value | avg_value_per_product
+-- ------------|-------------------|---------------|-------------|----------------------
+-- Electronics | A - High Value    | 45            | 567890.50   | 12619.79
+-- Electronics | B - Medium Value  | 89            | 345678.90   | 3883.47
+-- Electronics | C - Low Value     | 234           | 123456.75   | 527.59
+--
+-- Use case: Inventory optimization
+-- Focus on high-value items (A category)
