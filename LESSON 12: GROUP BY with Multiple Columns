@@ -1,0 +1,663 @@
+-- ============================================================================
+-- LESSON 12: GROUP BY with Multiple Columns
+-- ============================================================================
+-- GROUP BY can group by multiple columns simultaneously, creating
+-- hierarchical or cross-tabulated summaries.
+--
+-- Single column GROUP BY: Creates one group per unique value
+-- Multiple column GROUP BY: Creates one group per unique COMBINATION of values
+--
+-- Example:
+-- GROUP BY warehouse_id → groups by warehouse only
+-- GROUP BY warehouse_id, category → groups by each warehouse-category pair
+--
+-- Why this matters in supply chain:
+-- - Inventory by warehouse AND category
+-- - Sales by supplier AND region
+-- - Orders by customer AND month
+-- - Performance by carrier AND destination
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: TWO-COLUMN GROUP BY BASICS
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Inventory by warehouse AND category
+-- Each unique warehouse-category combination becomes a group
+
+SELECT 
+    i.warehouse_id,
+    p.category,
+    COUNT(DISTINCT i.product_id) AS unique_products,
+    SUM(i.quantity) AS total_units,
+    SUM(i.quantity * p.price) AS inventory_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY i.warehouse_id, p.category
+ORDER BY i.warehouse_id, p.category;
+
+-- Results:
+-- warehouse_id | category    | unique_products | total_units | inventory_value
+-- -------------|-------------|-----------------|-------------|----------------
+-- WH01         | Electronics | 123             | 2450        | 345678.50
+-- WH01         | Medical     | 34              | 450         | 89234.75
+-- WH01         | Parts       | 89              | 3200        | 123456.00
+-- WH01         | Tools       | 145             | 3300        | 234567.25
+-- WH02         | Electronics | 156             | 4500        | 567890.50
+-- WH02         | Medical     | 45              | 678         | 145678.90
+-- WH02         | Parts       | 67              | 2340        | 98765.50
+-- WH02         | Tools       | 178             | 5500        | 456789.25
+-- WH03         | Electronics | 178             | 5670        | 678901.75
+-- WH03         | Parts       | 98              | 4100        | 178934.50
+-- WH03         | Tools       | 234             | 6890        | 567890.00
+--
+-- Use case: Detailed inventory distribution
+-- Shows what product types are in each warehouse
+-- Each row represents one warehouse-category combination
+
+
+-- Example 2: Sales by supplier AND region
+-- Analyzing supplier performance by geographic area
+
+SELECT 
+    s.supplier_id,
+    s.supplier_name,
+    c.state AS customer_region,
+    COUNT(DISTINCT o.order_id) AS order_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM suppliers s
+JOIN products p ON s.supplier_id = p.supplier_id
+JOIN order_details od ON p.product_id = od.product_id
+JOIN orders o ON od.order_id = o.order_id
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.status = 'Delivered'
+GROUP BY s.supplier_id, s.supplier_name, c.state
+ORDER BY s.supplier_name, revenue DESC;
+
+-- Results:
+-- supplier_id | supplier_name     | customer_region | order_count | units_sold | revenue
+-- ------------|-------------------|-----------------|-------------|------------|----------
+-- 501         | ABC Manufacturing | CA              | 234         | 3456       | 456789.50
+-- 501         | ABC Manufacturing | NY              | 189         | 2345       | 345678.90
+-- 501         | ABC Manufacturing | TX              | 145         | 1890       | 234567.75
+-- 502         | XYZ Components    | CA              | 198         | 2890       | 389456.00
+-- 502         | XYZ Components    | FL              | 156         | 2234       | 298765.50
+-- 502         | XYZ Components    | NY              | 167         | 2456       | 312456.75
+--
+-- Use case: Geographic supplier performance
+-- Which suppliers are strong in which regions?
+
+
+-- Example 3: Products sold by category AND price range
+-- Market segmentation analysis
+
+SELECT 
+    p.category,
+    CASE 
+        WHEN p.price < 50 THEN 'Budget'
+        WHEN p.price < 150 THEN 'Mid-Range'
+        WHEN p.price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END AS price_tier,
+    COUNT(DISTINCT p.product_id) AS product_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue,
+    AVG(od.unit_price) AS avg_selling_price
+FROM products p
+JOIN order_details od ON p.product_id = od.product_id
+GROUP BY 
+    p.category,
+    CASE 
+        WHEN p.price < 50 THEN 'Budget'
+        WHEN p.price < 150 THEN 'Mid-Range'
+        WHEN p.price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END
+ORDER BY p.category, price_tier;
+
+-- Results:
+-- category    | price_tier | product_count | units_sold | revenue    | avg_selling_price
+-- ------------|------------|---------------|------------|------------|------------------
+-- Electronics | Budget     | 45            | 3456       | 98765.50   | 28.58
+-- Electronics | Luxury     | 12            | 234        | 234567.80  | 1002.42
+-- Electronics | Mid-Range  | 123           | 4567       | 456789.00  | 100.02
+-- Electronics | Premium    | 89            | 1890       | 456789.50  | 241.69
+-- Tools       | Budget     | 67            | 5678       | 189456.75  | 33.37
+-- Tools       | Mid-Range  | 145           | 3456       | 298765.00  | 86.45
+-- Tools       | Premium    | 34            | 890        | 178934.50  | 201.05
+--
+-- Use case: Category-price matrix
+-- Understanding sales patterns across categories and price points
+
+
+-- Example 4: Orders by customer AND month
+-- Customer ordering patterns over time
+
+SELECT 
+    o.customer_id,
+    c.customer_name,
+    DATE_FORMAT(o.order_date, '%Y-%m') AS order_month,
+    COUNT(*) AS order_count,
+    SUM(o.total) AS monthly_spending,
+    AVG(o.total) AS avg_order_value
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.status IN ('Delivered', 'Shipped')
+GROUP BY o.customer_id, c.customer_name, DATE_FORMAT(o.order_date, '%Y-%m')
+ORDER BY o.customer_id, order_month;
+
+-- Results:
+-- customer_id | customer_name  | order_month | order_count | monthly_spending | avg_order_value
+-- ------------|----------------|-------------|-------------|------------------|----------------
+-- C123        | John Smith     | 2023-12     | 8           | 4567.80          | 570.98
+-- C123        | John Smith     | 2024-01     | 12          | 6789.50          | 565.79
+-- C123        | John Smith     | 2024-02     | 10          | 5432.75          | 543.28
+-- C456        | Sarah Johnson  | 2023-12     | 5           | 2345.90          | 469.18
+-- C456        | Sarah Johnson  | 2024-01     | 7           | 3456.80          | 493.83
+--
+-- Use case: Customer lifecycle analysis
+-- Tracking individual customer activity over time
+
+
+-- Example 5: Shipments by carrier AND destination state
+-- Carrier geographic coverage analysis
+
+SELECT 
+    s.carrier,
+    c.state AS destination_state,
+    COUNT(*) AS shipment_count,
+    AVG(DATEDIFF(s.delivery_date, s.ship_date)) AS avg_transit_days,
+    COUNT(CASE WHEN s.delivery_date <= s.estimated_delivery THEN 1 END) AS on_time_count,
+    ROUND(COUNT(CASE WHEN s.delivery_date <= s.estimated_delivery THEN 1 END) * 100.0 / COUNT(*), 2) AS on_time_percent
+FROM shipments s
+JOIN orders o ON s.order_id = o.order_id
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE s.delivery_date IS NOT NULL
+GROUP BY s.carrier, c.state
+ORDER BY s.carrier, shipment_count DESC;
+
+-- Results:
+-- carrier | destination_state | shipment_count | avg_transit_days | on_time_count | on_time_percent
+-- --------|-------------------|----------------|------------------|---------------|----------------
+-- FedEx   | CA                | 234            | 2.5              | 215           | 91.88
+-- FedEx   | FL                | 189            | 3.8              | 167           | 88.36
+-- FedEx   | NY                | 198            | 2.1              | 186           | 93.94
+-- FedEx   | TX                | 156            | 3.2              | 142           | 91.03
+-- UPS     | CA                | 267            | 2.8              | 245           | 91.76
+-- UPS     | FL                | 201            | 4.2              | 178           | 88.56
+-- UPS     | NY                | 234            | 2.6              | 221           | 94.44
+--
+-- Use case: Carrier performance by region
+-- Which carriers are best for which states?
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: THREE-COLUMN GROUP BY
+-- ----------------------------------------------------------------------------
+
+-- Example 6: Inventory by warehouse, category, AND stock level
+-- Three-dimensional inventory analysis
+
+SELECT 
+    i.warehouse_id,
+    p.category,
+    CASE 
+        WHEN i.quantity = 0 THEN 'Out of Stock'
+        WHEN i.quantity < 20 THEN 'Critical Low'
+        WHEN i.quantity < 50 THEN 'Low'
+        WHEN i.quantity < 100 THEN 'Adequate'
+        ELSE 'High'
+    END AS stock_level,
+    COUNT(*) AS product_count,
+    SUM(i.quantity) AS total_units,
+    SUM(i.quantity * p.price) AS inventory_value
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY 
+    i.warehouse_id,
+    p.category,
+    CASE 
+        WHEN i.quantity = 0 THEN 'Out of Stock'
+        WHEN i.quantity < 20 THEN 'Critical Low'
+        WHEN i.quantity < 50 THEN 'Low'
+        WHEN i.quantity < 100 THEN 'Adequate'
+        ELSE 'High'
+    END
+ORDER BY i.warehouse_id, p.category, stock_level;
+
+-- Results:
+-- warehouse_id | category    | stock_level   | product_count | total_units | inventory_value
+-- -------------|-------------|---------------|---------------|-------------|----------------
+-- WH01         | Electronics | Adequate      | 34            | 2340        | 156789.50
+-- WH01         | Electronics | Critical Low  | 5             | 67          | 8934.75
+-- WH01         | Electronics | High          | 67            | 8950        | 234567.80
+-- WH01         | Electronics | Low           | 15            | 456         | 34567.90
+-- WH01         | Electronics | Out of Stock  | 2             | 0           | 0.00
+-- WH01         | Tools       | Adequate      | 45            | 3210        | 123456.75
+-- WH01         | Tools       | High          | 78            | 9870        | 298765.50
+--
+-- Use case: Detailed inventory health monitoring
+-- Warehouse-by-warehouse, category-by-category stock assessment
+
+
+-- Example 7: Sales by supplier, category, AND month
+-- Temporal supplier-category performance
+
+SELECT 
+    s.supplier_name,
+    p.category,
+    DATE_FORMAT(od.order_date, '%Y-%m') AS sales_month,
+    COUNT(DISTINCT od.order_id) AS order_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM suppliers s
+JOIN products p ON s.supplier_id = p.supplier_id
+JOIN order_details od ON p.product_id = od.product_id
+GROUP BY s.supplier_name, p.category, DATE_FORMAT(od.order_date, '%Y-%m')
+ORDER BY s.supplier_name, p.category, sales_month;
+
+-- Results:
+-- supplier_name     | category    | sales_month | order_count | units_sold | revenue
+-- ------------------|-------------|-------------|-------------|------------|----------
+-- ABC Manufacturing | Electronics | 2023-12     | 67          | 890        | 98765.50
+-- ABC Manufacturing | Electronics | 2024-01     | 89          | 1234       | 145678.90
+-- ABC Manufacturing | Electronics | 2024-02     | 78          | 1089       | 134567.80
+-- ABC Manufacturing | Tools       | 2023-12     | 45          | 678        | 67890.50
+-- ABC Manufacturing | Tools       | 2024-01     | 56          | 789        | 78901.75
+--
+-- Use case: Supplier-category trends
+-- How is each supplier performing in each category over time?
+
+
+-- Example 8: Customer orders by region, category, AND order size
+-- Multi-dimensional customer analysis
+
+SELECT 
+    c.state AS customer_region,
+    p.category,
+    CASE 
+        WHEN o.total < 100 THEN 'Small'
+        WHEN o.total < 500 THEN 'Medium'
+        WHEN o.total < 1000 THEN 'Large'
+        ELSE 'Enterprise'
+    END AS order_size,
+    COUNT(DISTINCT o.order_id) AS order_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(o.total) AS total_revenue,
+    AVG(o.total) AS avg_order_value
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+JOIN order_details od ON o.order_id = od.order_id
+JOIN products p ON od.product_id = p.product_id
+WHERE o.status = 'Delivered'
+GROUP BY 
+    c.state,
+    p.category,
+    CASE 
+        WHEN o.total < 100 THEN 'Small'
+        WHEN o.total < 500 THEN 'Medium'
+        WHEN o.total < 1000 THEN 'Large'
+        ELSE 'Enterprise'
+    END
+ORDER BY customer_region, p.category, order_size;
+
+-- Results:
+-- customer_region | category    | order_size | order_count | units_sold | total_revenue | avg_order_value
+-- ----------------|-------------|------------|-------------|------------|---------------|----------------
+-- CA              | Electronics | Enterprise | 45          | 567        | 78901.50      | 1753.37
+-- CA              | Electronics | Large      | 89          | 890        | 65432.75      | 735.20
+-- CA              | Electronics | Medium     | 156         | 1234       | 45678.90      | 292.81
+-- CA              | Electronics | Small      | 234         | 2345       | 18765.50      | 80.19
+-- CA              | Tools       | Enterprise | 23          | 345        | 34567.80      | 1502.95
+-- CA              | Tools       | Medium     | 123         | 1456       | 38901.25      | 316.27
+--
+-- Use case: Market segmentation
+-- Regional preferences and buying patterns by category and order size
+
+
+-- Example 9: Warehouse performance by category, supplier, AND quarter
+-- Complex supply chain analysis
+
+SELECT 
+    i.warehouse_id,
+    p.category,
+    s.supplier_name,
+    CONCAT(YEAR(od.order_date), '-Q', QUARTER(od.order_date)) AS quarter,
+    SUM(od.quantity) AS units_shipped,
+    SUM(od.quantity * od.unit_price) AS revenue,
+    COUNT(DISTINCT od.order_id) AS orders_fulfilled
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+JOIN suppliers s ON p.supplier_id = s.supplier_id
+JOIN order_details od ON p.product_id = od.product_id
+JOIN shipments sh ON od.order_id = sh.order_id AND i.warehouse_id = sh.warehouse_id
+GROUP BY 
+    i.warehouse_id,
+    p.category,
+    s.supplier_name,
+    YEAR(od.order_date),
+    QUARTER(od.order_date)
+ORDER BY quarter, i.warehouse_id, revenue DESC;
+
+-- Results:
+-- warehouse_id | category    | supplier_name     | quarter  | units_shipped | revenue    | orders_fulfilled
+-- -------------|-------------|-------------------|----------|---------------|------------|------------------
+-- WH01         | Electronics | ABC Manufacturing | 2024-Q1  | 1234          | 156789.50  | 234
+-- WH01         | Tools       | XYZ Components    | 2024-Q1  | 890           | 98765.75   | 178
+-- WH01         | Parts       | Premium Supplies  | 2024-Q1  | 2345          | 89456.90   | 289
+-- WH02         | Electronics | ABC Manufacturing | 2024-Q1  | 1567          | 189456.80  | 267
+--
+-- Use case: Complex supply chain optimization
+-- Understanding warehouse-supplier-category performance over time
+
+
+-- Example 10: Product performance by category, price tier, AND season
+-- Seasonal pricing analysis
+
+SELECT 
+    p.category,
+    CASE 
+        WHEN p.price < 50 THEN 'Budget'
+        WHEN p.price < 150 THEN 'Mid-Range'
+        WHEN p.price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END AS price_tier,
+    CASE 
+        WHEN MONTH(od.order_date) IN (12, 1, 2) THEN 'Winter'
+        WHEN MONTH(od.order_date) IN (3, 4, 5) THEN 'Spring'
+        WHEN MONTH(od.order_date) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+    END AS season,
+    COUNT(DISTINCT p.product_id) AS products_sold,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue,
+    AVG(od.unit_price) AS avg_selling_price
+FROM products p
+JOIN order_details od ON p.product_id = od.product_id
+GROUP BY 
+    p.category,
+    CASE 
+        WHEN p.price < 50 THEN 'Budget'
+        WHEN p.price < 150 THEN 'Mid-Range'
+        WHEN p.price < 500 THEN 'Premium'
+        ELSE 'Luxury'
+    END,
+    CASE 
+        WHEN MONTH(od.order_date) IN (12, 1, 2) THEN 'Winter'
+        WHEN MONTH(od.order_date) IN (3, 4, 5) THEN 'Spring'
+        WHEN MONTH(od.order_date) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+    END
+ORDER BY p.category, price_tier, season;
+
+-- Results:
+-- category    | price_tier | season | products_sold | units_sold | revenue    | avg_selling_price
+-- ------------|------------|--------|---------------|------------|------------|------------------
+-- Electronics | Budget     | Fall   | 23            | 456        | 12345.60   | 27.06
+-- Electronics | Budget     | Spring | 25            | 567        | 15678.90   | 27.66
+-- Electronics | Budget     | Summer | 22            | 489        | 13456.75   | 27.52
+-- Electronics | Budget     | Winter | 28            | 678        | 18765.50   | 27.68
+-- Electronics | Mid-Range  | Fall   | 67            | 890        | 89456.80   | 100.52
+-- Electronics | Mid-Range  | Spring | 72            | 1023       | 102345.90  | 100.04
+--
+-- Use case: Seasonal inventory planning
+-- Which price tiers sell best in which seasons for each category?
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: COMPARING SINGLE vs MULTIPLE COLUMN GROUPING
+-- ----------------------------------------------------------------------------
+
+-- Example 11: Single column grouping - Total by warehouse
+-- High-level summary
+
+SELECT 
+    warehouse_id,
+    COUNT(*) AS total_products,
+    SUM(quantity) AS total_units
+FROM inventory
+GROUP BY warehouse_id;
+
+-- Results:
+-- warehouse_id | total_products | total_units
+-- -------------|----------------|-------------
+-- WH01         | 428            | 8950
+-- WH02         | 567            | 12340
+-- WH03         | 689            | 15670
+--
+-- Shows: Overall warehouse totals
+
+
+-- Example 12: Two column grouping - Detail by warehouse AND category
+-- More detailed breakdown
+
+SELECT 
+    warehouse_id,
+    category,
+    COUNT(*) AS products,
+    SUM(quantity) AS units
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY warehouse_id, category;
+
+-- Results:
+-- warehouse_id | category    | products | units
+-- -------------|-------------|----------|-------
+-- WH01         | Electronics | 123      | 2450
+-- WH01         | Tools       | 145      | 3300
+-- WH01         | Parts       | 89       | 3200
+-- WH02         | Electronics | 156      | 4500
+-- WH02         | Tools       | 178      | 5500
+-- WH02         | Parts       | 67       | 2340
+--
+-- Shows: Each warehouse-category combination
+-- More rows, more detail than single column grouping
+
+
+-- Example 13: Comparison - Revenue aggregation levels
+
+-- Level 1: Total revenue (no grouping)
+SELECT SUM(total) AS total_revenue
+FROM orders
+WHERE status = 'Delivered';
+-- Result: 2450678.90
+
+-- Level 2: Revenue by month (1 column)
+SELECT 
+    DATE_FORMAT(order_date, '%Y-%m') AS month,
+    SUM(total) AS revenue
+FROM orders
+WHERE status = 'Delivered'
+GROUP BY DATE_FORMAT(order_date, '%Y-%m');
+-- Results: One row per month
+
+-- Level 3: Revenue by month AND category (2 columns)
+SELECT 
+    DATE_FORMAT(o.order_date, '%Y-%m') AS month,
+    p.category,
+    SUM(o.total) AS revenue
+FROM orders o
+JOIN order_details od ON o.order_id = od.order_id
+JOIN products p ON od.product_id = p.product_id
+WHERE o.status = 'Delivered'
+GROUP BY DATE_FORMAT(o.order_date, '%Y-%m'), p.category;
+-- Results: One row per month-category combination
+
+-- Level 4: Revenue by month, category, AND region (3 columns)
+SELECT 
+    DATE_FORMAT(o.order_date, '%Y-%m') AS month,
+    p.category,
+    c.state AS region,
+    SUM(o.total) AS revenue
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+JOIN order_details od ON o.order_id = od.order_id
+JOIN products p ON od.product_id = p.product_id
+WHERE o.status = 'Delivered'
+GROUP BY DATE_FORMAT(o.order_date, '%Y-%m'), p.category, c.state;
+-- Results: One row per month-category-region combination
+-- Most detailed view
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: ORDER OF COLUMNS IN GROUP BY
+-- ----------------------------------------------------------------------------
+
+-- Example 14: Does column order in GROUP BY matter?
+-- Answer: NO for results, but affects readability when combined with ORDER BY
+
+-- Version A:
+SELECT 
+    category,
+    warehouse_id,
+    SUM(quantity) AS total_units
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY category, warehouse_id
+ORDER BY category, warehouse_id;
+
+-- Results grouped by category first:
+-- category    | warehouse_id | total_units
+-- ------------|--------------|-------------
+-- Electronics | WH01         | 2450
+-- Electronics | WH02         | 4500
+-- Electronics | WH03         | 5670
+-- Parts       | WH01         | 3200
+-- Parts       | WH02         | 2340
+-- Parts       | WH03         | 4100
+
+
+-- Version B:
+SELECT 
+    warehouse_id,
+    category,
+    SUM(quantity) AS total_units
+FROM inventory i
+JOIN products p ON i.product_id = p.product_id
+GROUP BY warehouse_id, category
+ORDER BY warehouse_id, category;
+
+-- Results grouped by warehouse first:
+-- warehouse_id | category    | total_units
+-- -------------|-------------|-------------
+-- WH01         | Electronics | 2450
+-- WH01         | Parts       | 3200
+-- WH01         | Tools       | 3300
+-- WH02         | Electronics | 4500
+-- WH02         | Parts       | 2340
+-- WH02         | Tools       | 5500
+
+-- Same data, different organization
+-- Choose based on your reporting needs
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: REAL-WORLD MULTI-DIMENSIONAL ANALYTICS
+-- ----------------------------------------------------------------------------
+
+-- Example 15: Comprehensive supplier performance matrix
+
+SELECT 
+    s.supplier_name,
+    s.country AS supplier_country,
+    p.category,
+    c.state AS customer_region,
+    COUNT(DISTINCT o.order_id) AS orders,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue,
+    AVG(DATEDIFF(o.delivery_date, o.order_date)) AS avg_lead_time
+FROM suppliers s
+JOIN products p ON s.supplier_id = p.supplier_id
+JOIN order_details od ON p.product_id = od.product_id
+JOIN orders o ON od.order_id = o.order_id
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.delivery_date IS NOT NULL
+GROUP BY s.supplier_name, s.country, p.category, c.state
+HAVING SUM(od.quantity * od.unit_price) > 10000  -- Preview of HAVING clause
+ORDER BY revenue DESC
+LIMIT 20;
+
+-- Results:
+-- supplier_name     | supplier_country | category    | customer_region | orders | units_sold | revenue   | avg_lead_time
+-- ------------------|------------------|-------------|-----------------|--------|------------|-----------|---------------
+-- ABC Manufacturing | United States    | Electronics | CA              | 234    | 3456       | 456789.50 | 3.2
+-- ABC Manufacturing | United States    | Electronics | NY              | 189    | 2345       | 345678.90 | 2.8
+-- XYZ Components    | China            | Tools       | CA              | 198    | 2890       | 289456.00 | 5.5
+-- Premium Supplies  | Germany          | Electronics | TX              | 167    | 1890       | 267890.50 | 4.2
+--
+-- Use case: Strategic sourcing decisions
+-- Which suppliers excel in which categories and regions?
+
+
+-- Example 16: Warehouse efficiency by category and time period
+
+SELECT 
+    i.warehouse_id,
+    w.warehouse_name,
+    p.category,
+    DATE_FORMAT(o.order_date, '%Y-%m') AS month,
+    COUNT(DISTINCT o.order_id) AS orders_fulfilled,
+    SUM(od.quantity) AS units_shipped,
+    AVG(DATEDIFF(s.ship_date, o.order_date)) AS avg_processing_days,
+    SUM(od.quantity * od.unit_price) AS revenue_generated
+FROM inventory i
+JOIN warehouses w ON i.warehouse_id = w.warehouse_id
+JOIN products p ON i.product_id = p.product_id
+JOIN order_details od ON p.product_id = od.product_id
+JOIN orders o ON od.order_id = o.order_id
+JOIN shipments s ON o.order_id = s.order_id AND i.warehouse_id = s.warehouse_id
+GROUP BY 
+    i.warehouse_id,
+    w.warehouse_name,
+    p.category,
+    DATE_FORMAT(o.order_date, '%Y-%m')
+ORDER BY month, revenue_generated DESC;
+
+-- Results:
+-- warehouse_id | warehouse_name | category    | month   | orders_fulfilled | units_shipped | avg_processing_days | revenue_generated
+-- -------------|----------------|-------------|---------|------------------|---------------|---------------------|------------------
+-- WH02         | West Coast DC  | Electronics | 2024-01 | 234              | 3456          | 1.2                 | 456789.50
+-- WH01         | East Coast DC  | Tools       | 2024-01 | 189              | 2890          | 1.5                 | 345678.90
+-- WH03         | Central DC     | Electronics | 2024-01 | 198              | 2567          | 1.8                 | 334567.80
+--
+-- Use case: Warehouse operations optimization
+-- Which warehouses are most efficient with which categories?
+
+
+-- Example 17: Customer segmentation matrix
+
+SELECT 
+    c.state AS customer_region,
+    CASE 
+        WHEN SUM(o.total) < 1000 THEN 'Bronze'
+        WHEN SUM(o.total) < 5000 THEN 'Silver'
+        WHEN SUM(o.total) < 20000 THEN 'Gold'
+        ELSE 'Platinum'
+    END AS customer_tier,
+    p.category,
+    COUNT(DISTINCT c.customer_id) AS customer_count,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    SUM(o.total) AS total_revenue,
+    AVG(o.total) AS avg_order_value
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+JOIN order_details od ON o.order_id = od.order_id
+JOIN products p ON od.product_id = p.product_id
+WHERE o.status IN ('Delivered', 'Shipped')
+GROUP BY 
+    c.state,
+    p.category,
+    c.customer_id
+HAVING SUM(o.total) >= 500  -- Only customers who spent at least $500
+ORDER BY customer_region, total_revenue DESC;
+
+-- Use case: Targeted marketing campaigns
+-- Understanding customer value by region and product preference
+
+
+-- Results:
+-- warehouse_id | category    | month   | avg_inventory_level | units_sold | turnover_ratio | revenue
+-- -------------|-------------|---------|---------------------|------------|----------------|----------
+-- WH02         | Electronics | 2024-01
