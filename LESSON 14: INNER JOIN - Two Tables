@@ -1,0 +1,722 @@
+-- ============================================================================
+-- LESSON 14: INNER JOIN - Two Tables
+-- ============================================================================
+-- INNER JOIN combines rows from two tables based on a matching condition.
+-- Only rows where the join condition is TRUE are included in results.
+--
+-- Basic Syntax:
+-- SELECT columns
+-- FROM table1
+-- INNER JOIN table2 ON table1.column = table2.column
+--
+-- Key concept: INNER JOIN only returns rows that have matches in BOTH tables.
+-- If a row in table1 has no match in table2, it's excluded (and vice versa).
+--
+-- Why this matters in supply chain:
+-- - Connecting products to their suppliers
+-- - Linking orders to customer information
+-- - Matching shipments to carriers
+-- - Joining inventory to product details
+-- - Combining sales data with product information
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PART 1: BASIC INNER JOIN CONCEPTS
+-- ----------------------------------------------------------------------------
+
+-- Example 1: Products with their supplier information
+-- Most basic INNER JOIN - connecting two tables
+
+SELECT 
+    p.product_id,
+    p.product_name,
+    p.price,
+    s.supplier_id,
+    s.supplier_name,
+    s.country
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id;
+
+-- Results:
+-- product_id | product_name    | price  | supplier_id | supplier_name     | country
+-- -----------|-----------------|--------|-------------|-------------------|-------------
+-- 1001       | Widget A        | 29.99  | 501         | ABC Manufacturing | United States
+-- 1002       | Gadget B        | 15.50  | 502         | XYZ Components    | China
+-- 1003       | Component C     | 99.99  | 501         | ABC Manufacturing | United States
+-- 1004       | Tool Set D      | 125.00 | 503         | Global Supply Co  | Germany
+--
+-- Use case: Product catalog with supplier details
+-- Shows only products that HAVE a supplier assigned
+-- Products with NULL supplier_id are excluded
+
+
+-- Example 2: Orders with customer information
+-- Understanding who placed each order
+
+SELECT 
+    o.order_id,
+    o.order_date,
+    o.total,
+    o.status,
+    c.customer_id,
+    c.customer_name,
+    c.email,
+    c.phone
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id;
+
+-- Results:
+-- order_id | order_date  | total   | status    | customer_id | customer_name  | email              | phone
+-- ---------|-------------|---------|-----------|-------------|----------------|--------------------|----------
+-- 5001     | 2024-01-15  | 450.00  | Delivered | C123        | John Smith     | john@email.com     | 555-1234
+-- 5002     | 2024-01-16  | 230.50  | Pending   | C456        | Sarah Johnson  | sarah@email.com    | 555-5678
+-- 5003     | 2024-01-16  | 1200.00 | Shipped   | C789        | TechCorp Inc   | tech@corp.com      | 555-9012
+--
+-- Use case: Order fulfillment list with customer contact information
+-- Only orders that have a valid customer are shown
+
+
+-- Example 3: Inventory with product details
+-- Combining stock levels with product information
+
+SELECT 
+    i.product_id,
+    p.product_name,
+    p.category,
+    i.warehouse_id,
+    i.quantity,
+    p.price,
+    (i.quantity * p.price) AS inventory_value
+FROM inventory i
+INNER JOIN products p ON i.product_id = p.product_id;
+
+-- Results:
+-- product_id | product_name  | category    | warehouse_id | quantity | price  | inventory_value
+-- -----------|---------------|-------------|--------------|----------|--------|----------------
+-- 1001       | Widget A      | Electronics | WH01         | 150      | 29.99  | 4498.50
+-- 1002       | Gadget B      | Tools       | WH02         | 89       | 15.50  | 1379.50
+-- 1003       | Component C   | Electronics | WH01         | 15       | 99.99  | 1499.85
+-- 1004       | Tool Set D    | Tools       | WH03         | 245      | 125.00 | 30625.00
+--
+-- Use case: Inventory valuation report
+-- Shows stock levels with dollar values
+
+
+-- Example 4: Shipments with carrier information
+-- Tracking which carrier handles each shipment
+
+SELECT 
+    s.shipment_id,
+    s.order_id,
+    s.tracking_number,
+    s.ship_date,
+    s.delivery_date,
+    c.carrier_name,
+    c.service_level,
+    c.contact_phone
+FROM shipments s
+INNER JOIN carriers c ON s.carrier_id = c.carrier_id;
+
+-- Results:
+-- shipment_id | order_id | tracking_number | ship_date   | delivery_date | carrier_name | service_level | contact_phone
+-- ------------|----------|-----------------|-------------|---------------|--------------|---------------|---------------
+-- SH001       | 5001     | FX123456789     | 2024-01-17  | 2024-01-20    | FedEx        | Ground        | 1-800-FEDEX
+-- SH002       | 5003     | 1Z999AA1234     | 2024-01-18  | 2024-01-21    | UPS          | 2-Day         | 1-800-PICKUPS
+-- SH003       | 5005     | 9400111899223   | 2024-01-19  | 2024-01-22    | USPS         | Priority      | 1-800-ASKUSPS
+--
+-- Use case: Shipment tracking dashboard with carrier contact info
+
+
+-- Example 5: Order details with product information
+-- What products are in each order?
+
+SELECT 
+    od.order_id,
+    od.product_id,
+    p.product_name,
+    p.category,
+    od.quantity,
+    od.unit_price,
+    (od.quantity * od.unit_price) AS line_total
+FROM order_details od
+INNER JOIN products p ON od.product_id = p.product_id;
+
+-- Results:
+-- order_id | product_id | product_name  | category    | quantity | unit_price | line_total
+-- ---------|------------|---------------|-------------|----------|------------|------------
+-- 5001     | 1001       | Widget A      | Electronics | 5        | 29.99      | 149.95
+-- 5001     | 1003       | Component C   | Electronics | 3        | 99.99      | 299.97
+-- 5002     | 1002       | Gadget B      | Tools       | 15       | 15.50      | 232.50
+-- 5003     | 1004       | Tool Set D    | Tools       | 10       | 125.00     | 1250.00
+--
+-- Use case: Order line item details with product names
+-- Breaking down what's in each order
+
+
+-- ----------------------------------------------------------------------------
+-- PART 2: INNER JOIN WITH WHERE CLAUSE
+-- ----------------------------------------------------------------------------
+
+-- Example 6: Products from specific supplier
+-- Filtering after joining
+
+SELECT 
+    p.product_id,
+    p.product_name,
+    p.price,
+    s.supplier_name,
+    s.country
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+WHERE s.country = 'United States';
+
+-- Results:
+-- product_id | product_name    | price  | supplier_name     | country
+-- -----------|-----------------|--------|-------------------|-------------
+-- 1001       | Widget A        | 29.99  | ABC Manufacturing | United States
+-- 1003       | Component C     | 99.99  | ABC Manufacturing | United States
+-- 1007       | Assembly Kit    | 150.00 | US Parts Inc      | United States
+--
+-- Use case: Sourcing report for domestic suppliers
+-- Shows only products from US-based suppliers
+
+
+-- Example 7: Orders from specific customer in date range
+
+SELECT 
+    o.order_id,
+    o.order_date,
+    o.total,
+    o.status,
+    c.customer_name,
+    c.email
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+WHERE c.customer_id = 'C123'
+  AND o.order_date >= '2024-01-01';
+
+-- Results:
+-- order_id | order_date  | total   | status      | customer_name | email
+-- ---------|-------------|---------|-------------|---------------|----------------
+-- 5001     | 2024-01-15  | 450.00  | Delivered   | John Smith    | john@email.com
+-- 5004     | 2024-01-17  | 89.99   | Processing  | John Smith    | john@email.com
+-- 5008     | 2024-01-20  | 2500.00 | Delivered   | John Smith    | john@email.com
+--
+-- Use case: Customer order history
+-- All orders for specific customer in 2024
+
+
+-- Example 8: High-value inventory items in specific warehouse
+
+SELECT 
+    i.product_id,
+    p.product_name,
+    i.quantity,
+    p.price,
+    (i.quantity * p.price) AS inventory_value
+FROM inventory i
+INNER JOIN products p ON i.product_id = p.product_id
+WHERE i.warehouse_id = 'WH01'
+  AND (i.quantity * p.price) > 1000
+ORDER BY inventory_value DESC;
+
+-- Results:
+-- product_id | product_name  | quantity | price  | inventory_value
+-- -----------|---------------|----------|--------|----------------
+-- 1004       | Tool Set D    | 150      | 125.00 | 18750.00
+-- 1001       | Widget A      | 150      | 29.99  | 4498.50
+-- 1003       | Component C   | 15       | 99.99  | 1499.85
+--
+-- Use case: High-value asset tracking
+-- Most valuable inventory in NYC warehouse
+
+
+-- Example 9: Electronics products from specific supplier with stock
+
+SELECT 
+    p.product_id,
+    p.product_name,
+    p.price,
+    s.supplier_name,
+    i.warehouse_id,
+    i.quantity
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+INNER JOIN inventory i ON p.product_id = i.product_id
+WHERE p.category = 'Electronics'
+  AND s.supplier_id = 501
+  AND i.quantity > 0;
+
+-- Results:
+-- product_id | product_name    | price  | supplier_name     | warehouse_id | quantity
+-- -----------|-----------------|--------|-------------------|--------------|----------
+-- 1001       | Widget A        | 29.99  | ABC Manufacturing | WH01         | 150
+-- 1003       | Component C     | 99.99  | ABC Manufacturing | WH01         | 15
+-- 1008       | Smart Device    | 249.99 | ABC Manufacturing | WH02         | 35
+--
+-- Use case: Available electronics from preferred supplier
+-- Checking stock of electronics from supplier 501
+
+
+-- Example 10: Recent delivered orders with customer details
+
+SELECT 
+    o.order_id,
+    o.order_date,
+    o.delivery_date,
+    o.total,
+    c.customer_name,
+    c.state,
+    DATEDIFF(o.delivery_date, o.order_date) AS delivery_days
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.status = 'Delivered'
+  AND o.delivery_date >= '2024-01-15'
+ORDER BY o.delivery_date DESC;
+
+-- Results:
+-- order_id | order_date  | delivery_date | total   | customer_name  | state | delivery_days
+-- ---------|-------------|---------------|---------|----------------|-------|---------------
+-- 5015     | 2024-01-22  | 2024-01-25    | 3200.00 | Premium Buyers | CA    | 3
+-- 5012     | 2024-01-20  | 2024-01-24    | 1575.50 | Mike Williams  | NY    | 4
+-- 5008     | 2024-01-17  | 2024-01-20    | 2500.00 | John Smith     | TX    | 3
+--
+-- Use case: Recent delivery performance tracking
+
+
+-- ----------------------------------------------------------------------------
+-- PART 3: INNER JOIN WITH AGGREGATES
+-- ----------------------------------------------------------------------------
+
+-- Example 11: Total orders and revenue per customer
+
+SELECT 
+    c.customer_id,
+    c.customer_name,
+    c.state,
+    COUNT(o.order_id) AS total_orders,
+    SUM(o.total) AS total_spent,
+    AVG(o.total) AS avg_order_value,
+    MAX(o.total) AS largest_order
+FROM customers c
+INNER JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.status = 'Delivered'
+GROUP BY c.customer_id, c.customer_name, c.state
+ORDER BY total_spent DESC;
+
+-- Results:
+-- customer_id | customer_name    | state | total_orders | total_spent | avg_order_value | largest_order
+-- ------------|------------------|-------|--------------|-------------|-----------------|---------------
+-- C123        | John Smith       | TX    | 45           | 125000.50   | 2777.79         | 15000.00
+-- C456        | Sarah Johnson    | CA    | 38           | 98750.25    | 2598.69         | 8500.00
+-- C789        | TechCorp Inc     | NY    | 52           | 87500.00    | 1682.69         | 5600.00
+--
+-- Use case: Customer lifetime value analysis
+-- Top spending customers
+
+
+-- Example 12: Products sold by supplier
+
+SELECT 
+    s.supplier_id,
+    s.supplier_name,
+    s.country,
+    COUNT(DISTINCT p.product_id) AS products_offered,
+    COUNT(DISTINCT od.order_id) AS orders_received,
+    SUM(od.quantity) AS total_units_sold,
+    SUM(od.quantity * od.unit_price) AS total_revenue
+FROM suppliers s
+INNER JOIN products p ON s.supplier_id = p.supplier_id
+INNER JOIN order_details od ON p.product_id = od.product_id
+GROUP BY s.supplier_id, s.supplier_name, s.country
+ORDER BY total_revenue DESC;
+
+-- Results:
+-- supplier_id | supplier_name     | country       | products_offered | orders_received | total_units_sold | total_revenue
+-- ------------|-------------------|---------------|------------------|-----------------|------------------|---------------
+-- 501         | ABC Manufacturing | United States | 45               | 1234            | 15678            | 1567890.50
+-- 502         | XYZ Components    | China         | 38               | 1089            | 12456            | 1234567.75
+-- 505         | Premium Supplies  | Germany       | 32               | 892             | 9876             | 987654.00
+--
+-- Use case: Supplier performance ranking
+-- Which suppliers generate most revenue?
+
+
+-- Example 13: Inventory value by warehouse
+
+SELECT 
+    i.warehouse_id,
+    w.warehouse_name,
+    w.city,
+    w.state,
+    COUNT(DISTINCT i.product_id) AS unique_products,
+    SUM(i.quantity) AS total_units,
+    SUM(i.quantity * p.price) AS total_value
+FROM inventory i
+INNER JOIN products p ON i.product_id = p.product_id
+INNER JOIN warehouses w ON i.warehouse_id = w.warehouse_id
+WHERE i.quantity > 0
+GROUP BY i.warehouse_id, w.warehouse_name, w.city, w.state
+ORDER BY total_value DESC;
+
+-- Results:
+-- warehouse_id | warehouse_name | city        | state | unique_products | total_units | total_value
+-- -------------|----------------|-------------|-------|-----------------|-------------|-------------
+-- WH02         | West Coast DC  | Los Angeles | CA    | 567             | 12340       | 1234567.75
+-- WH03         | Central DC     | Chicago     | IL    | 689             | 15670       | 1156789.50
+-- WH01         | East Coast DC  | New York    | NY    | 428             | 8950        | 756890.25
+--
+-- Use case: Asset allocation by location
+-- Understanding inventory distribution
+
+
+-- Example 14: Category sales by month
+
+SELECT 
+    DATE_FORMAT(od.order_date, '%Y-%m') AS sales_month,
+    p.category,
+    COUNT(DISTINCT od.order_id) AS order_count,
+    SUM(od.quantity) AS units_sold,
+    SUM(od.quantity * od.unit_price) AS revenue
+FROM order_details od
+INNER JOIN products p ON od.product_id = p.product_id
+GROUP BY DATE_FORMAT(od.order_date, '%Y-%m'), p.category
+ORDER BY sales_month, revenue DESC;
+
+-- Results:
+-- sales_month | category    | order_count | units_sold | revenue
+-- ------------|-------------|-------------|------------|----------
+-- 2024-01     | Electronics | 412         | 4567       | 567890.50
+-- 2024-01     | Tools       | 345         | 3456       | 345678.90
+-- 2024-01     | Parts       | 289         | 5678       | 234567.75
+-- 2024-02     | Electronics | 389         | 4234       | 534567.80
+--
+-- Use case: Monthly category performance
+-- Tracking sales trends by product type
+
+
+-- Example 15: Carrier performance metrics
+
+SELECT 
+    c.carrier_name,
+    c.service_level,
+    COUNT(s.shipment_id) AS total_shipments,
+    AVG(DATEDIFF(s.delivery_date, s.ship_date)) AS avg_transit_days,
+    COUNT(CASE WHEN s.delivery_date <= s.estimated_delivery THEN 1 END) AS on_time_deliveries,
+    ROUND(COUNT(CASE WHEN s.delivery_date <= s.estimated_delivery THEN 1 END) * 100.0 / COUNT(*), 2) AS on_time_percent
+FROM carriers c
+INNER JOIN shipments s ON c.carrier_id = s.carrier_id
+WHERE s.delivery_date IS NOT NULL
+GROUP BY c.carrier_name, c.service_level
+ORDER BY on_time_percent DESC;
+
+-- Results:
+-- carrier_name | service_level | total_shipments | avg_transit_days | on_time_deliveries | on_time_percent
+-- -------------|---------------|-----------------|------------------|--------------------|-----------------
+-- FedEx        | Express       | 456             | 1.8              | 445                | 97.59
+-- UPS          | 2-Day         | 678             | 2.1              | 645                | 95.13
+-- FedEx        | Ground        | 890             | 3.2              | 823                | 92.47
+-- USPS         | Priority      | 567             | 3.8              | 512                | 90.30
+--
+-- Use case: Carrier selection optimization
+-- Which carriers are most reliable?
+
+
+-- ----------------------------------------------------------------------------
+-- PART 4: CALCULATING DERIVED VALUES WITH JOINS
+-- ----------------------------------------------------------------------------
+
+-- Example 16: Order totals calculated from line items
+-- Verifying order totals
+
+SELECT 
+    o.order_id,
+    o.order_date,
+    c.customer_name,
+    o.total AS order_total,
+    SUM(od.quantity * od.unit_price) AS calculated_total,
+    o.total - SUM(od.quantity * od.unit_price) AS difference
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id
+INNER JOIN order_details od ON o.order_id = od.order_id
+GROUP BY o.order_id, o.order_date, c.customer_name, o.total
+HAVING ABS(o.total - SUM(od.quantity * od.unit_price)) > 0.01
+ORDER BY difference DESC;
+
+-- Results (showing discrepancies):
+-- order_id | order_date  | customer_name | order_total | calculated_total | difference
+-- ---------|-------------|---------------|-------------|------------------|------------
+-- 5023     | 2024-01-18  | TechCorp Inc  | 1250.00     | 1249.95          | 0.05
+-- 5045     | 2024-01-21  | Sarah Johnson | 450.50      | 450.00           | 0.50
+--
+-- Use case: Data quality audit
+-- Finding orders where totals don't match line items
+
+
+-- Example 17: Product profitability analysis
+-- Comparing cost (from supplier) vs selling price
+
+SELECT 
+    p.product_id,
+    p.product_name,
+    s.supplier_name,
+    p.cost AS supplier_cost,
+    AVG(od.unit_price) AS avg_selling_price,
+    AVG(od.unit_price) - p.cost AS profit_per_unit,
+    SUM(od.quantity) AS units_sold,
+    (AVG(od.unit_price) - p.cost) * SUM(od.quantity) AS total_profit
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+INNER JOIN order_details od ON p.product_id = od.product_id
+GROUP BY p.product_id, p.product_name, s.supplier_name, p.cost
+ORDER BY total_profit DESC
+LIMIT 10;
+
+-- Results:
+-- product_id | product_name    | supplier_name     | supplier_cost | avg_selling_price | profit_per_unit | units_sold | total_profit
+-- -----------|-----------------|-------------------|---------------|-------------------|-----------------|------------|-------------
+-- 1001       | Widget A        | ABC Manufacturing | 18.50         | 29.99             | 11.49           | 5678       | 65240.22
+-- 1008       | Smart Device    | ABC Manufacturing | 175.00        | 249.99            | 74.99           | 890        | 66741.10
+-- 1003       | Component C     | ABC Manufacturing | 65.00         | 99.99             | 34.99           | 1234       | 43176.66
+--
+-- Use case: Product profitability ranking
+-- Which products generate most profit?
+
+
+-- Example 18: Customer purchase frequency
+-- Time between orders
+
+SELECT 
+    c.customer_id,
+    c.customer_name,
+    COUNT(o.order_id) AS total_orders,
+    MIN(o.order_date) AS first_order,
+    MAX(o.order_date) AS last_order,
+    DATEDIFF(MAX(o.order_date), MIN(o.order_date)) AS days_as_customer,
+    ROUND(DATEDIFF(MAX(o.order_date), MIN(o.order_date)) / COUNT(o.order_id), 1) AS avg_days_between_orders
+FROM customers c
+INNER JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.customer_name
+HAVING COUNT(o.order_id) > 1
+ORDER BY total_orders DESC;
+
+-- Results:
+-- customer_id | customer_name  | total_orders | first_order | last_order  | days_as_customer | avg_days_between_orders
+-- ------------|----------------|--------------|-------------|-------------|------------------|------------------------
+-- C123        | John Smith     | 45           | 2023-03-15  | 2024-01-25  | 316              | 7.0
+-- C789        | TechCorp Inc   | 52           | 2023-02-10  | 2024-01-24  | 348              | 6.7
+-- C456        | Sarah Johnson  | 38           | 2023-05-20  | 2024-01-22  | 247              | 6.5
+--
+-- Use case: Customer retention analysis
+-- Understanding purchase patterns
+
+
+-- Example 19: Warehouse shipping performance
+-- Orders fulfilled from each warehouse
+
+SELECT 
+    w.warehouse_id,
+    w.warehouse_name,
+    w.city,
+    COUNT(DISTINCT s.shipment_id) AS shipments_sent,
+    COUNT(DISTINCT o.order_id) AS orders_fulfilled,
+    AVG(DATEDIFF(s.ship_date, o.order_date)) AS avg_processing_days,
+    SUM(o.total) AS revenue_generated
+FROM warehouses w
+INNER JOIN shipments s ON w.warehouse_id = s.warehouse_id
+INNER JOIN orders o ON s.order_id = o.order_id
+WHERE o.status IN ('Shipped', 'Delivered')
+GROUP BY w.warehouse_id, w.warehouse_name, w.city
+ORDER BY revenue_generated DESC;
+
+-- Results:
+-- warehouse_id | warehouse_name | city        | shipments_sent | orders_fulfilled | avg_processing_days | revenue_generated
+-- -------------|----------------|-------------|----------------|------------------|---------------------|------------------
+-- WH02         | West Coast DC  | Los Angeles | 1567           | 1567             | 1.2                 | 1567890.50
+-- WH01         | East Coast DC  | New York    | 1234           | 1234             | 1.5                 | 1234567.75
+-- WH03         | Central DC     | Chicago     | 1089           | 1089             | 1.8                 | 987654.00
+--
+-- Use case: Warehouse operations comparison
+-- Which locations are most efficient?
+
+
+-- Example 20: Product availability across warehouses
+-- Where can each product be found?
+
+SELECT 
+    p.product_id,
+    p.product_name,
+    p.category,
+    COUNT(DISTINCT i.warehouse_id) AS warehouses_stocked,
+    SUM(i.quantity) AS total_quantity,
+    AVG(i.quantity) AS avg_per_warehouse,
+    GROUP_CONCAT(CONCAT(i.warehouse_id, ':', i.quantity) ORDER BY i.quantity DESC) AS warehouse_details
+FROM products p
+INNER JOIN inventory i ON p.product_id = i.product_id
+WHERE i.quantity > 0
+GROUP BY p.product_id, p.product_name, p.category
+ORDER BY warehouses_stocked DESC, total_quantity DESC;
+
+-- PostgreSQL version uses STRING_AGG instead of GROUP_CONCAT
+
+-- Results:
+-- product_id | product_name  | category    | warehouses_stocked | total_quantity | avg_per_warehouse | warehouse_details
+-- -----------|---------------|-------------|--------------------| ---------------|-------------------|-------------------
+-- 1001       | Widget A      | Electronics | 3                  | 425            | 141.7             | WH02:175,WH01:150,WH03:100
+-- 1002       | Gadget B      | Tools       | 3                  | 367            | 122.3             | WH03:189,WH01:89,WH02:89
+-- 1004       | Tool Set D    | Tools       | 2                  | 395            | 197.5             | WH03:245,WH01:150
+--
+-- Use case: Multi-warehouse inventory visibility
+-- Understanding product distribution
+
+
+-- ----------------------------------------------------------------------------
+-- PART 5: UNDERSTANDING WHAT INNER JOIN EXCLUDES
+-- ----------------------------------------------------------------------------
+
+-- Example 21: Products that HAVE suppliers (INNER JOIN)
+
+SELECT COUNT(*) AS products_with_suppliers
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id;
+
+-- Result: 1195 (products that have a supplier)
+
+
+-- Example 22: Compare with total products
+
+SELECT COUNT(*) AS total_products
+FROM products;
+
+-- Result: 1250 (all products)
+
+-- Difference: 55 products have no supplier (NULL supplier_id)
+-- INNER JOIN excluded these 55 products
+
+
+-- Example 23: Showing the excluded products
+-- Products WITHOUT suppliers (what INNER JOIN excludes)
+
+SELECT 
+    product_id,
+    product_name,
+    category,
+    price,
+    supplier_id
+FROM products
+WHERE supplier_id IS NULL;
+
+-- Results:
+-- product_id | product_name       | category | price  | supplier_id
+-- -----------|--------------------|----------|--------|-------------
+-- 1018       | Legacy Component   | Parts    | 67.50  | NULL
+-- 1025       | Discontinued Item  | Tools    | 89.99  | NULL
+-- 1034       | Old Stock          | Parts    | 45.00  | NULL
+--
+-- Use case: Data quality - products needing supplier assignment
+-- These products would be excluded from supplier analysis
+
+
+-- Example 24: Orders that HAVE customers (INNER JOIN)
+
+SELECT COUNT(*) AS orders_with_customers
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.customer_id;
+
+-- Compare with:
+SELECT COUNT(*) AS total_orders FROM orders;
+
+-- If numbers differ, some orders have invalid customer_id
+
+
+-- Example 25: Understanding INNER JOIN filtering
+
+-- This query:
+SELECT p.product_name, s.supplier_name
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+WHERE p.category = 'Electronics';
+
+-- Is equivalent to:
+SELECT p.product_name, s.supplier_name
+FROM products p
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+AND p.category = 'Electronics';
+
+-- Both give same results with INNER JOIN
+-- Difference matters more with OUTER JOINs (next lesson)
+
+
+-- ============================================================================
+-- INNER JOIN KEY CONCEPTS SUMMARY
+-- ============================================================================
+
+-- 1. INNER JOIN returns only rows that have matches in BOTH tables
+-- 2. If a row in Table A has no match in Table B, it's excluded
+-- 3. If a row in Table B has no match in Table A, it's excluded
+-- 4. The join condition (ON clause) specifies how tables are related
+-- 5. Most commonly: foreign key in one table = primary key in another
+-- 6. Can combine with WHERE, GROUP BY, ORDER BY, etc.
+-- 7. Can use table aliases (p, s, o, c) to make queries shorter
+
+
+-- ============================================================================
+-- COMMON JOIN PATTERNS IN SUPPLY CHAIN
+-- ============================================================================
+
+-- Pattern 1: Product-Supplier relationship
+-- FROM products p INNER JOIN suppliers s ON p.supplier_id = s.supplier_id
+
+-- Pattern 2: Order-Customer relationship
+-- FROM orders o INNER JOIN customers c ON o.customer_id = c.customer_id
+
+-- Pattern 3: Inventory-Product relationship
+-- FROM inventory i INNER JOIN products p ON i.product_id = p.product_id
+
+-- Pattern 4: Order-OrderDetails relationship (parent-child)
+-- FROM orders o INNER JOIN order_details od ON o.order_id = od.order_id
+
+-- Pattern 5: Shipment-Carrier relationship
+-- FROM shipments s INNER JOIN carriers c ON s.carrier_id = c.carrier_id
+
+
+-- ============================================================================
+-- BEST PRACTICES
+-- ============================================================================
+
+-- 1. Always use table aliases for clarity (p, s, o, c, etc.)
+-- 2. Qualify column names with table aliases (p.product_id, not just product_id)
+-- 3. Put JOIN conditions in ON clause, filters in WHERE clause
+-- 4. Use meaningful alias names (p for products, s for suppliers)
+-- 5. Format for readability - one JOIN per line
+-- 6. Join on indexed columns when possible (usually primary/foreign keys)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Forgetting the ON clause
+-- SELECT * FROM products p INNER JOIN suppliers s;
+-- Error: Join condition required
+
+-- CORRECT:
+SELECT * FROM products p INNER JOIN suppliers s ON p.supplier_id = s.supplier_id;
+
+
+-- WRONG: Ambiguous column names
+-- SELECT product_id, supplier_name
+-- FROM products INNER JOIN suppliers ON supplier_id = supplier_id;
+-- Error: Which table's supplier_id?
+
+-- CORRECT: Qualify column names
+SELECT p.product_id, s.supplier_name
+FROM products p 
+INNER JOIN suppliers s ON p.supplier_id = s.supplier_id;
+
+
+-- WRONG: Cartesian product (missing join condition)
+-- SELECT * FROM products p, suppliers s;
+-- Returns every product paired with every supplier (millions of rows!)
+
