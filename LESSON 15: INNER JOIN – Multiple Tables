@@ -1,0 +1,193 @@
+-- ============================================================================
+-- LESSON 15: INNER JOIN – Multiple Tables
+-- Linking orders → order_lines → products → suppliers
+-- ============================================================================
+-- This lesson explains how to combine multiple related tables into
+-- ONE result set using INNER JOIN.
+--
+-- Business goal:
+-- View full order details including:
+-- order → line items → product → supplier
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- TABLE RELATIONSHIP OVERVIEW
+-- ----------------------------------------------------------------------------
+-- orders
+--   |
+--   | (order_id)
+--   ↓
+-- order_lines
+--   |
+--   | (product_id)
+--   ↓
+-- products
+--   |
+--   | (supplier_id)
+--   ↓
+-- suppliers
+--
+-- This is a very common supply-chain data model.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: View each table individually
+-- ----------------------------------------------------------------------------
+
+SELECT * FROM orders;
+SELECT * FROM order_lines;
+SELECT * FROM products;
+SELECT * FROM suppliers;
+
+-- Looking at tables separately helps you understand:
+-- - Primary keys
+-- - Foreign keys
+-- - How tables connect
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: INNER JOIN orders with order_lines
+-- ----------------------------------------------------------------------------
+
+SELECT
+    o.order_id,
+    o.order_date,
+    ol.product_id,
+    ol.quantity,
+    ol.unit_price
+FROM orders o
+INNER JOIN order_lines ol
+    ON o.order_id = ol.order_id;
+
+-- What this does:
+-- - Connects each order to its line items
+-- - One order can appear multiple times (one row per product)
+--
+-- INNER JOIN rule:
+-- Only rows that exist in BOTH tables are returned
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Add products table
+-- ----------------------------------------------------------------------------
+
+SELECT
+    o.order_id,
+    o.order_date,
+    p.product_name,
+    ol.quantity,
+    ol.unit_price
+FROM orders o
+INNER JOIN order_lines ol
+    ON o.order_id = ol.order_id
+INNER JOIN products p
+    ON ol.product_id = p.product_id;
+
+-- Now we can see:
+-- - Which products were ordered
+-- - How many units
+-- - At what price
+--
+-- This is already a usable sales dataset
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Add suppliers table (full chain)
+-- ----------------------------------------------------------------------------
+
+SELECT
+    o.order_id,
+    o.order_date,
+    p.product_name,
+    s.supplier_name,
+    s.country AS supplier_country,
+    ol.quantity,
+    ol.unit_price,
+    (ol.quantity * ol.unit_price) AS line_value
+FROM orders o
+INNER JOIN order_lines ol
+    ON o.order_id = ol.order_id
+INNER JOIN products p
+    ON ol.product_id = p.product_id
+INNER JOIN suppliers s
+    ON p.supplier_id = s.supplier_id;
+
+-- Final result shows:
+-- - Order information
+-- - Product sold
+-- - Supplier responsible
+-- - Financial value per line
+--
+-- This is a classic supply chain analytics dataset
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1. INNER JOIN returns ONLY matching records
+--    If data is missing in any table → row is excluded
+
+-- 2. Join order does NOT change results
+--    But logical flow should follow business process
+
+-- 3. Always join using:
+--    Primary Key → Foreign Key
+
+-- Example:
+-- orders.order_id        → order_lines.order_id
+-- order_lines.product_id → products.product_id
+-- products.supplier_id   → suppliers.supplier_id
+
+
+-- ============================================================================
+-- ALIAS BEST PRACTICE
+-- ============================================================================
+
+-- Use short, readable aliases:
+-- orders        → o
+-- order_lines   → ol
+-- products      → p
+-- suppliers     → s
+--
+-- This makes long queries readable and professional
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- WRONG: Missing join condition
+-- INNER JOIN products p;
+
+-- WRONG: Joining incorrect columns
+-- ON o.order_id = p.product_id;
+
+-- WRONG: Using ambiguous column names
+-- SELECT order_id;   -- which table?
+
+-- CORRECT:
+-- SELECT o.order_id;
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1. Show order_id, product_name, quantity only
+
+-- 2. Show total order value per order
+-- (hint: SUM(quantity * unit_price))
+
+-- 3. Show total sales by supplier
+
+-- 4. Count number of orders per supplier
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- Next lesson:
+-- - LEFT JOIN vs INNER JOIN
+-- ============================================================================
