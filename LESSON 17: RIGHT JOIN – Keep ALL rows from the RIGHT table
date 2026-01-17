@@ -1,0 +1,200 @@
+-- ============================================================================
+-- LESSON 17: RIGHT JOIN – Keep ALL rows from the RIGHT table
+-- ============================================================================
+-- Purpose:
+-- RIGHT JOIN keeps ALL rows from the RIGHT table, even if there is
+-- no matching row on the LEFT table.
+--
+-- Supply chain use-case here:
+-- - All orders, including those WITHOUT shipment info
+--
+-- Note:
+-- RIGHT JOIN is less common in modern SQL because the same result can be
+-- written as a LEFT JOIN by swapping table order. Still, you will see it
+-- in legacy code and some BI-generated SQL.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumption (typical)
+-- ----------------------------------------------------------------------------
+-- orders:
+-- - order_id (PK)
+-- - customer_id
+-- - order_date
+-- - status
+--
+-- shipments:
+-- - shipment_id (PK)
+-- - order_id (FK to orders.order_id)  <-- sometimes NULL or missing rows
+-- - carrier
+-- - tracking_number
+-- - ship_date
+-- - delivery_date
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: RIGHT JOIN shipments to orders (keep ALL orders)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Show me every order, even if it has not been shipped yet.”
+
+SELECT
+    o.order_id,
+    o.order_date,
+    o.status,
+    sh.shipment_id,
+    sh.carrier,
+    sh.tracking_number,
+    sh.ship_date,
+    sh.delivery_date
+FROM shipments sh
+RIGHT JOIN orders o
+    ON sh.order_id = o.order_id;
+
+-- How to interpret results:
+-- - Orders with NULL shipment fields (shipment_id, carrier, etc.) have
+--   no matching shipment record yet
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Only orders missing shipment info
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which orders are still unshipped (no shipment record exists)?”
+
+SELECT
+    o.order_id,
+    o.order_date,
+    o.status
+FROM shipments sh
+RIGHT JOIN orders o
+    ON sh.order_id = o.order_id
+WHERE sh.shipment_id IS NULL;
+
+-- Why this works:
+-- - RIGHT JOIN keeps all orders
+-- - For orders without shipments, shipment columns are NULL
+-- - Filtering sh.shipment_id IS NULL returns only “missing shipment” orders
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Orders + shipment status flag in one query
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Give me all orders with a clean shipped/not shipped indicator.”
+
+SELECT
+    o.order_id,
+    o.order_date,
+    o.status,
+    CASE
+        WHEN sh.shipment_id IS NULL THEN 'NOT_SHIPPED'
+        ELSE 'SHIPPED'
+    END AS shipment_status,
+    sh.shipment_id,
+    sh.ship_date,
+    sh.delivery_date
+FROM shipments sh
+RIGHT JOIN orders o
+    ON sh.order_id = o.order_id;
+
+-- Practical use:
+-- - Backlog monitoring
+-- - Order-to-ship SLA checks
+-- - Exception reporting for customer service teams
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: RIGHT JOIN rewritten as LEFT JOIN (recommended style)
+-- ----------------------------------------------------------------------------
+-- This is the exact same result as Example 1, but more commonly used.
+
+SELECT
+    o.order_id,
+    o.order_date,
+    o.status,
+    sh.shipment_id,
+    sh.carrier,
+    sh.tracking_number,
+    sh.ship_date,
+    sh.delivery_date
+FROM orders o
+LEFT JOIN shipments sh
+    ON sh.order_id = o.order_id;
+
+-- Why teams prefer this:
+-- - Consistent “start from the business driver table” logic
+-- - Easier to read when you chain multiple joins
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) RIGHT JOIN keeps ALL rows from the RIGHT table
+--    Non-matching LEFT table columns become NULL
+
+-- 2) RIGHT JOIN can almost always be rewritten as LEFT JOIN:
+--    shipments RIGHT JOIN orders  ==  orders LEFT JOIN shipments
+
+-- 3) For “find missing data” use-cases:
+--    Filter on the NULL column coming from the optional table:
+--    WHERE sh.shipment_id IS NULL
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Filtering shipment columns in WHERE incorrectly
+-- If you write:
+-- WHERE sh.ship_date >= '2025-01-01'
+-- you will eliminate NULL shipment rows and lose “not shipped” orders.
+--
+-- If you need a shipment date filter AND still want orders with no shipment:
+-- Put the filter in the JOIN condition (ON), not WHERE.
+
+-- Example pattern (keeps all orders):
+SELECT
+    o.order_id,
+    o.order_date,
+    sh.ship_date
+FROM shipments sh
+RIGHT JOIN orders o
+    ON sh.order_id = o.order_id
+    AND sh.ship_date >= DATE '2025-01-01';
+
+-- In this pattern:
+-- - You still keep all orders
+-- - Shipments outside the date condition are treated like “no match”
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Show all orders and the number of shipments per order
+--    (hint: COUNT(sh.shipment_id) + GROUP BY order fields)
+
+-- 2) Show only orders in the last 30 days that are NOT shipped yet
+--    (hint: filter order_date in WHERE, filter missing shipment by NULL)
+
+-- 3) Add carrier performance: for shipped orders, calculate days in transit
+--    (delivery_date - ship_date)
+
+
+-- ============================================================================
+-- WHAT'S NEXT: SELF JOIN
+-- ============================================================================
+-- Self Join = joining a table to itself.
+-- Common supply chain use-cases:
+-- - Product substitutions / “related items” mapping
+-- - BOM (bill of materials): parent SKU → component SKU
+-- - Warehouse network lanes: from_location → to_location in one table
+-- - Employee/organization hierarchy: manager_id → employee_id
+--
+-- Next lesson will show:
+-- - Self join syntax with clear aliases (p1, p2)
+-- - Typical patterns (BOM, substitutions, hierarchy)
+-- ============================================================================
