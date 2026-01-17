@@ -1,0 +1,197 @@
+-- ============================================================================
+-- LESSON 16: LEFT JOIN – Finding “Missing” Business Activity
+-- ============================================================================
+-- Purpose:
+-- Use LEFT JOIN to keep ALL rows from the LEFT table, even if there is
+-- no matching row on the RIGHT table.
+--
+-- Supply chain use-cases covered here:
+-- 1) All products, including those NEVER ordered
+-- 2) Suppliers with NO recent activity (and potentially never ordered)
+--
+-- What’s next:
+-- - RIGHT JOIN (same idea as LEFT JOIN, but keeps all rows from the RIGHT table)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- QUICK REMINDER: INNER JOIN vs LEFT JOIN
+-- ----------------------------------------------------------------------------
+-- INNER JOIN:
+-- - Returns ONLY matches between tables
+--
+-- LEFT JOIN:
+-- - Returns ALL rows from the LEFT table
+-- - If there is no match on the RIGHT table → RIGHT-side columns are NULL
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: All products, including those NEVER ordered
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which products exist in the master data, but have never been sold?”
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price,
+    ol.order_id,
+    ol.quantity
+FROM products p
+LEFT JOIN order_lines ol
+    ON p.product_id = ol.product_id
+WHERE ol.order_id IS NULL;
+
+-- What this does:
+-- - Starts from products (LEFT table) → keeps ALL products
+-- - Joins order_lines (RIGHT table)
+-- - Filters to rows where no order line exists → never ordered products
+--
+-- Interpreting NULL:
+-- - If ol.order_id is NULL → there was no match in order_lines for that product
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: All products with “ordered / never ordered” status flag
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Give me a full list of products and show if they have any sales history.”
+
+SELECT
+    p.product_id,
+    p.product_name,
+    CASE
+        WHEN COUNT(ol.order_id) = 0 THEN 'NEVER_ORDERED'
+        ELSE 'ORDERED'
+    END AS order_status,
+    COUNT(ol.order_id) AS total_order_lines
+FROM products p
+LEFT JOIN order_lines ol
+    ON p.product_id = ol.product_id
+GROUP BY
+    p.product_id,
+    p.product_name;
+
+-- Notes:
+-- - LEFT JOIN ensures every product appears
+-- - COUNT(ol.order_id) counts only matched rows (NULLs don’t count)
+-- - This becomes a clean “master data coverage” report
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Suppliers WITHOUT any recent activity (by last N days)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which suppliers have NOT shipped/been ordered recently?”
+--
+-- Definition here:
+-- - “Recent activity” = at least one order in the last 90 days
+-- - If a supplier has ZERO matching recent orders → flagged as inactive
+--
+-- Adjust the date logic depending on your DB:
+-- - SQL Server: DATEADD(day, -90, GETDATE())
+-- - PostgreSQL: CURRENT_DATE - INTERVAL '90 days'
+-- - MySQL: DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+--
+-- Below is written in a PostgreSQL-style date expression.
+
+SELECT
+    s.supplier_id,
+    s.supplier_name,
+    MAX(o.order_date) AS last_order_date,
+    COUNT(DISTINCT o.order_id) AS recent_order_count
+FROM suppliers s
+LEFT JOIN products p
+    ON s.supplier_id = p.supplier_id
+LEFT JOIN order_lines ol
+    ON p.product_id = ol.product_id
+LEFT JOIN orders o
+    ON ol.order_id = o.order_id
+    AND o.order_date >= (CURRENT_DATE - INTERVAL '90 days')
+GROUP BY
+    s.supplier_id,
+    s.supplier_name
+HAVING COUNT(DISTINCT o.order_id) = 0;
+
+-- Why the date filter is placed in the JOIN (ON) and not WHERE:
+-- - If you put the date filter in WHERE, you will eliminate NULL-matches
+--   and accidentally turn your LEFT JOIN back into an INNER JOIN.
+--
+-- This pattern is critical for “find missing activity” problems.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Supplier inactivity with a clean ACTIVE / INACTIVE flag
+-- ----------------------------------------------------------------------------
+
+SELECT
+    s.supplier_id,
+    s.supplier_name,
+    CASE
+        WHEN MAX(o.order_date) IS NULL THEN 'NO_ACTIVITY_IN_PERIOD'
+        ELSE 'ACTIVE_IN_PERIOD'
+    END AS activity_status,
+    MAX(o.order_date) AS last_order_date_in_period
+FROM suppliers s
+LEFT JOIN products p
+    ON s.supplier_id = p.supplier_id
+LEFT JOIN order_lines ol
+    ON p.product_id = ol.product_id
+LEFT JOIN orders o
+    ON ol.order_id = o.order_id
+    AND o.order_date >= (CURRENT_DATE - INTERVAL '90 days')
+GROUP BY
+    s.supplier_id,
+    s.supplier_name;
+
+-- Interpretation:
+-- - If last_order_date_in_period is NULL → no matching recent orders
+-- - This is often used for supplier performance governance
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Accidentally converting LEFT JOIN into INNER JOIN by filtering in WHERE
+-- WRONG:
+-- SELECT ...
+-- FROM suppliers s
+-- LEFT JOIN ...
+-- WHERE o.order_date >= CURRENT_DATE - INTERVAL '90 days';
+--
+-- This removes NULL rows → you lose inactive suppliers.
+
+-- 2) Counting with COUNT(*)
+-- COUNT(*) counts rows even when the joined table is NULL-expanded.
+-- Use COUNT(o.order_id) or COUNT(DISTINCT o.order_id) for activity.
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) List all products and show last order date (NULL if never ordered)
+
+-- 2) List suppliers and count total distinct products they provide
+--    (including suppliers with zero products, if that’s possible in your data)
+
+-- 3) Identify products ordered in the last 30 days and products not ordered
+--    in the last 30 days (status flag)
+
+
+-- ============================================================================
+-- WHAT'S NEXT: RIGHT JOIN
+-- ============================================================================
+-- RIGHT JOIN keeps ALL rows from the RIGHT table (instead of LEFT).
+-- In practice:
+-- - RIGHT JOIN is less commonly used because you can rewrite it as LEFT JOIN
+--   by swapping table order.
+--
+-- Example equivalence:
+-- A RIGHT JOIN B   ===   B LEFT JOIN A
+--
+-- Next lesson will show:
+-- - RIGHT JOIN syntax
+-- ============================================================================
