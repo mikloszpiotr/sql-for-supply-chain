@@ -1,0 +1,238 @@
+-- ============================================================================
+-- LESSON 18: SELF JOINS – Joining a table to itself
+-- ============================================================================
+-- Purpose:
+-- A self join is when you join a table to itself using different aliases.
+-- This is used to compare rows within the SAME table or build relationships.
+--
+-- Supply chain use-cases in this lesson:
+-- 1) Compare current vs previous period inventory (same SKU/location)
+-- 2) Find product relationships (substitutes / accessories / bundles)
+--
+-- What’s next:
+-- - DISTINCT (remove duplicates, control grain, clean outputs)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_snapshots (a periodic snapshot table):
+-- - snapshot_date
+-- - sku_id
+-- - location_id
+-- - on_hand_qty
+--
+-- product_relationships (a relationship table for SKUs):
+-- - sku_id
+-- - related_sku_id
+-- - relationship_type   (e.g., 'SUBSTITUTE', 'ACCESSORY', 'BUNDLE')
+--
+-- products:
+-- - sku_id
+-- - product_name
+-- - category
+
+
+-- ============================================================================
+-- USE-CASE 1: Comparing current vs previous period inventory (self join)
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Compare inventory for the same SKU/location: current day vs prior day
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “For each SKU and location, how did inventory change vs the previous snapshot?”
+
+SELECT
+    cur.snapshot_date                       AS current_snapshot_date,
+    prev.snapshot_date                      AS previous_snapshot_date,
+    cur.sku_id,
+    cur.location_id,
+    cur.on_hand_qty                         AS current_on_hand_qty,
+    prev.on_hand_qty                        AS previous_on_hand_qty,
+    (cur.on_hand_qty - prev.on_hand_qty)    AS qty_change_vs_previous
+FROM inventory_snapshots cur
+LEFT JOIN inventory_snapshots prev
+    ON  cur.sku_id = prev.sku_id
+    AND cur.location_id = prev.location_id
+    AND prev.snapshot_date = (cur.snapshot_date - INTERVAL '1 day');
+
+-- Notes:
+-- - We alias the table twice: cur and prev
+-- - LEFT JOIN keeps current rows even if a previous snapshot is missing
+-- - Missing prev rows will show NULL previous_on_hand_qty
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Week-over-week comparison (7 days back)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Compare today’s inventory vs inventory 7 days ago.”
+
+SELECT
+    cur.snapshot_date                        AS current_snapshot_date,
+    prev.snapshot_date                       AS prior_week_snapshot_date,
+    cur.sku_id,
+    cur.location_id,
+    cur.on_hand_qty                          AS current_on_hand_qty,
+    prev.on_hand_qty                         AS prior_week_on_hand_qty,
+    (cur.on_hand_qty - prev.on_hand_qty)     AS qty_change_vs_prior_week
+FROM inventory_snapshots cur
+LEFT JOIN inventory_snapshots prev
+    ON  cur.sku_id = prev.sku_id
+    AND cur.location_id = prev.location_id
+    AND prev.snapshot_date = (cur.snapshot_date - INTERVAL '7 days');
+
+-- Tip:
+-- - This is a foundation for inventory volatility dashboards
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Show only “big movers” (absolute change above threshold)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which SKU/locations changed by more than 100 units vs yesterday?”
+
+SELECT
+    cur.snapshot_date,
+    cur.sku_id,
+    cur.location_id,
+    cur.on_hand_qty AS current_on_hand_qty,
+    prev.on_hand_qty AS previous_on_hand_qty,
+    (cur.on_hand_qty - prev.on_hand_qty) AS qty_change_vs_previous
+FROM inventory_snapshots cur
+LEFT JOIN inventory_snapshots prev
+    ON  cur.sku_id = prev.sku_id
+    AND cur.location_id = prev.location_id
+    AND prev.snapshot_date = (cur.snapshot_date - INTERVAL '1 day')
+WHERE ABS(cur.on_hand_qty - COALESCE(prev.on_hand_qty, 0)) > 100;
+
+-- Why COALESCE:
+-- - If previous is NULL (no record), treat it as 0 for change detection
+
+
+-- ============================================================================
+-- USE-CASE 2: Finding product relationships (self join via mapping table)
+-- ============================================================================
+-- Important concept:
+-- Relationships are often stored in a mapping table (sku_id → related_sku_id).
+-- The “self join” concept appears when you join the PRODUCTS table twice
+-- to show names for both SKUs.
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Show substitutes/accessories with product names (products joined twice)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “For each product, show its related products with relationship type.”
+
+SELECT
+    pr.sku_id                                AS base_sku_id,
+    p1.product_name                          AS base_product_name,
+    pr.related_sku_id                        AS related_sku_id,
+    p2.product_name                          AS related_product_name,
+    pr.relationship_type
+FROM product_relationships pr
+INNER JOIN products p1
+    ON pr.sku_id = p1.sku_id
+INNER JOIN products p2
+    ON pr.related_sku_id = p2.sku_id;
+
+-- What this does:
+-- - Same products table used twice:
+--   p1 = base product, p2 = related product
+-- - This is the cleanest pattern to present relationships
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Find “two-way” relationships (A relates to B AND B relates to A)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which relationships are maintained in both directions?”
+
+SELECT
+    a.sku_id,
+    a.related_sku_id,
+    a.relationship_type
+FROM product_relationships a
+INNER JOIN product_relationships b
+    ON  a.sku_id = b.related_sku_id
+    AND a.related_sku_id = b.sku_id
+    AND a.relationship_type = b.relationship_type;
+
+-- Practical use:
+-- - Data quality checks for master data governance
+-- - Ensuring substitutions are consistent
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Find “one-way only” relationships (data quality gaps)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which relationships exist only in one direction (missing reverse mapping)?”
+
+SELECT
+    a.sku_id,
+    a.related_sku_id,
+    a.relationship_type
+FROM product_relationships a
+LEFT JOIN product_relationships b
+    ON  a.sku_id = b.related_sku_id
+    AND a.related_sku_id = b.sku_id
+    AND a.relationship_type = b.relationship_type
+WHERE b.sku_id IS NULL;
+
+-- Interpretation:
+-- - If b.sku_id is NULL, the reverse relationship is missing
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Self join = same table used multiple times with aliases
+--    inventory_snapshots cur vs prev
+--    products p1 vs p2
+
+-- 2) Always use clear aliases:
+--    cur/prev for time comparisons
+--    p1/p2 for entity pairing
+
+-- 3) Prefer LEFT JOIN when you want to keep the “primary” side even if
+--    the comparison row is missing (common in period comparisons)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Forgetting table aliases (required in self joins)
+-- 2) Joining on incomplete keys (e.g., sku only but not location)
+-- 3) Using WHERE filters that remove NULL comparison rows unintentionally
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) For each SKU/location, compute % change vs previous day
+--    (hint: (cur - prev) / NULLIF(prev, 0))
+
+-- 2) Identify SKUs with no inventory record yesterday but present today
+
+-- 3) For product relationships, filter only relationship_type = 'SUBSTITUTE'
+
+
+-- ============================================================================
+-- WHAT'S NEXT: DISTINCT
+-- ============================================================================
+-- DISTINCT is used to remove duplicate rows.
+-- This matters in joins because:
+-- - Joins can multiply rows (one-to-many relationships)
+-- - You must control the grain of your output
+--
+-- Next lesson will show:
+-- - DISTINCT vs GROUP BY
+-- - When DISTINCT hides data issues
+-- - How to use DISTINCT safely in join-heavy supply chain queries
+-- ============================================================================
