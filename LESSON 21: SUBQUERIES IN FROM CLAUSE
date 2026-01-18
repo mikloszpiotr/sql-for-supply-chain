@@ -1,0 +1,239 @@
+-- ============================================================================
+-- LESSON 21: SUBQUERIES IN FROM CLAUSE (DERIVED TABLES)
+-- ============================================================================
+-- Purpose:
+-- A subquery in the FROM clause creates a temporary result set
+-- (also called a derived table).
+--
+-- This temporary table exists ONLY for the duration of the query.
+--
+-- In supply chain analytics, this pattern is used to:
+-- - Pre-aggregate data before joining
+-- - Control data grain
+-- - Improve readability of complex logic
+-- - Prevent row multiplication in joins
+--
+-- Use-cases covered:
+-- 1) Pre-aggregating sales before joining to master data
+-- 2) Creating temporary KPI tables inside SQL
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- KEY IDEA
+-- ----------------------------------------------------------------------------
+-- FROM ( subquery ) alias
+--
+-- The subquery MUST have:
+-- - Its own SELECT
+-- - A table alias (mandatory)
+--
+-- Think of it as:
+-- “Build a clean intermediate table first,
+-- then join it like a normal table.”
+
+
+-- ============================================================================
+-- USE-CASE 1: Pre-aggregating order data before joining
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions
+-- ----------------------------------------------------------------------------
+-- orders:
+-- - order_id
+-- - order_date
+--
+-- order_lines:
+-- - order_id
+-- - product_id
+-- - quantity
+-- - unit_price
+--
+-- products:
+-- - product_id
+-- - product_name
+-- - category
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Aggregate sales per product first, then join to products
+-- ----------------------------------------------------------------------------
+-- Business problem:
+-- If we join order_lines directly to products and then aggregate,
+-- we may multiply rows unnecessarily.
+--
+-- Solution:
+-- Aggregate FIRST → join SECOND.
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    s.total_quantity_sold,
+    s.total_sales_value
+FROM (
+        SELECT
+            ol.product_id,
+            SUM(ol.quantity) AS total_quantity_sold,
+            SUM(ol.quantity * ol.unit_price) AS total_sales_value
+        FROM order_lines ol
+        GROUP BY ol.product_id
+     ) s
+INNER JOIN products p
+    ON s.product_id = p.product_id;
+
+-- Explanation:
+-- - Subquery creates a temporary sales summary table
+-- - Outer query enriches it with product attributes
+--
+-- This is one of the most important analytics SQL patterns.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Sales per product in the last 30 days
+-- ----------------------------------------------------------------------------
+
+SELECT
+    p.product_id,
+    p.product_name,
+    s.total_sales_last_30_days
+FROM (
+        SELECT
+            ol.product_id,
+            SUM(ol.quantity * ol.unit_price) AS total_sales_last_30_days
+        FROM order_lines ol
+        INNER JOIN orders o
+            ON ol.order_id = o.order_id
+        WHERE o.order_date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY ol.product_id
+     ) s
+INNER JOIN products p
+    ON s.product_id = p.product_id;
+
+-- Business value:
+-- - Time-filtered KPI
+-- - Clean join
+-- - Easy to reuse logic
+
+
+-- ============================================================================
+-- USE-CASE 2: Derived table for inventory KPIs
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions
+-- ----------------------------------------------------------------------------
+-- inventory:
+-- - sku_id
+-- - warehouse_id
+-- - quantity
+-- - reorder_point
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Pre-calculate warehouse inventory metrics
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “What is the average and total inventory per warehouse?”
+
+SELECT
+    w.warehouse_id,
+    w.warehouse_name,
+    inv.total_qty,
+    inv.avg_qty
+FROM (
+        SELECT
+            warehouse_id,
+            SUM(quantity) AS total_qty,
+            AVG(quantity) AS avg_qty
+        FROM inventory
+        GROUP BY warehouse_id
+     ) inv
+INNER JOIN warehouses w
+    ON inv.warehouse_id = w.warehouse_id;
+
+-- Why this matters:
+-- - Warehouse KPIs are calculated once
+-- - Master data join happens after aggregation
+-- - Prevents SKU-level duplication
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Identify warehouses below network average stock
+-- ----------------------------------------------------------------------------
+
+SELECT
+    inv.warehouse_id,
+    inv.total_qty
+FROM (
+        SELECT
+            warehouse_id,
+            SUM(quantity) AS total_qty
+        FROM inventory
+        GROUP BY warehouse_id
+     ) inv
+WHERE inv.total_qty < (
+        SELECT AVG(total_qty)
+        FROM (
+                SELECT
+                    warehouse_id,
+                    SUM(quantity) AS total_qty
+                FROM inventory
+                GROUP BY warehouse_id
+             ) x
+     );
+
+-- This shows:
+-- - Derived tables can be nested
+-- - Used for benchmarking and exception detection
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Subqueries in FROM create temporary tables (derived tables)
+
+-- 2) Every derived table MUST have an alias
+
+-- 3) Use derived tables to:
+--    - Pre-aggregate
+--    - Simplify logic
+--    - Control row grain
+
+-- 4) This pattern is extremely common in:
+--    - BI semantic layers
+--    - Analytics SQL
+--    - Data marts
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Forgetting the alias
+-- FROM (SELECT ...)   --  invalid SQL
+
+-- 2) Over-aggregating and losing needed detail
+
+-- 3) Using derived tables when a simple GROUP BY is sufficient
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Pre-aggregate total order value per customer, then join to customers
+
+-- 2) Calculate monthly sales in a derived table, then join to calendar table
+
+-- 3) Build a temporary table of low-stock SKUs, then join to suppliers
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- Next lesson:
+-- - Subqueries in SELECT Clause
+-- ============================================================================
