@@ -1,0 +1,229 @@
+-- ============================================================================
+-- LESSON 20: SUBQUERIES IN WHERE CLAUSE
+-- ============================================================================
+-- Purpose:
+-- A subquery in the WHERE clause allows you to filter rows based on
+-- the result of another query.
+--
+-- In supply chain analytics, this is commonly used for:
+-- - Benchmark comparisons (vs average, vs mean, vs threshold)
+-- - Identifying underperforming or risky items
+-- - Exception-based reporting
+--
+-- Use-cases covered:
+-- 1) Products priced below average price
+-- 2) Inventory below reorder point compared to mean stock level
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- KEY IDEA
+-- ----------------------------------------------------------------------------
+-- A subquery runs FIRST.
+-- Its result is then used by the outer query.
+--
+-- Think of it as:
+-- “Give me rows where value is lower/higher than a benchmark
+-- calculated from the data itself.”
+
+
+-- ============================================================================
+-- USE-CASE 1: Products priced below the average price
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Find products cheaper than the overall average
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which products are priced below the portfolio average price?”
+
+SELECT
+    product_id,
+    product_name,
+    price
+FROM products
+WHERE price < (
+    SELECT AVG(price)
+    FROM products
+);
+
+-- Execution logic:
+-- 1) Subquery calculates AVG(price) across all products
+-- 2) Outer query returns only products below that value
+
+-- This is a classic benchmarking pattern.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Show average price alongside product price
+-- ----------------------------------------------------------------------------
+
+SELECT
+    product_id,
+    product_name,
+    price,
+    (SELECT AVG(price) FROM products) AS avg_product_price
+FROM products
+WHERE price < (
+    SELECT AVG(price)
+    FROM products
+);
+
+-- Useful for:
+-- - Pricing analysis
+-- - Portfolio review
+-- - Identifying low-margin candidates
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Products below category average price
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which products are cheaper than their own category average?”
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price
+FROM products p
+WHERE p.price < (
+    SELECT AVG(p2.price)
+    FROM products p2
+    WHERE p2.category = p.category
+);
+
+-- This is a correlated subquery:
+-- - Inner query depends on the outer query row (category)
+-- - Evaluated per category context
+
+
+-- ============================================================================
+-- USE-CASE 2: Inventory below reorder point compared to mean
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Data model assumption
+-- ----------------------------------------------------------------------------
+-- inventory:
+-- - sku_id
+-- - warehouse_id
+-- - quantity
+-- - reorder_point
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Inventory below average on-hand quantity
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which inventory records are below the average stock level?”
+
+SELECT
+    sku_id,
+    warehouse_id,
+    quantity
+FROM inventory
+WHERE quantity < (
+    SELECT AVG(quantity)
+    FROM inventory
+);
+
+-- Interpretation:
+-- - Identifies globally low-stock items
+-- - Useful for quick risk screening
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Inventory below mean AND below reorder point
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which SKUs are critically low compared to both policy and average?”
+
+SELECT
+    sku_id,
+    warehouse_id,
+    quantity,
+    reorder_point
+FROM inventory
+WHERE quantity < reorder_point
+  AND quantity < (
+        SELECT AVG(quantity)
+        FROM inventory
+      );
+
+-- Strong exception logic:
+-- - Below planning policy
+-- - Below network-wide mean
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Inventory below warehouse-specific mean (correlated)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which SKUs are low compared to typical stock levels in that warehouse?”
+
+SELECT
+    i.sku_id,
+    i.warehouse_id,
+    i.quantity
+FROM inventory i
+WHERE i.quantity < (
+    SELECT AVG(i2.quantity)
+    FROM inventory i2
+    WHERE i2.warehouse_id = i.warehouse_id
+);
+
+-- Why this matters:
+-- - Warehouses have different operating scales
+-- - Comparing globally can be misleading
+-- - This gives localized benchmarking
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Subquery executes before the outer query
+
+-- 2) Subqueries in WHERE usually return:
+--    - a single value (AVG, MAX, MIN)
+--    - or a list (IN, NOT IN)
+
+-- 3) Correlated subqueries reference columns from the outer query
+
+-- 4) Subqueries are often replaced by JOINs for performance,
+--    but are excellent for learning logic and business thinking
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Subquery returning multiple rows when a single value is expected
+
+-- WRONG:
+-- WHERE price < (SELECT price FROM products);
+
+-- 2) Using NOT IN when subquery can return NULL
+-- (can cause empty results)
+
+-- Prefer NOT EXISTS in advanced cases.
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Find products priced above average
+
+-- 2) Find inventory quantities above warehouse mean
+
+-- 3) Identify SKUs below category average stock level
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- Next lesson:
+-- - Subqueries in FROM Clause
+-- ============================================================================
