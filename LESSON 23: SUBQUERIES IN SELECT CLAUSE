@@ -1,5 +1,5 @@
 -- ============================================================================
--- LESSON 23: SUBQUERIES IN SELECT CLAUSE
+-- LESSON 22: SUBQUERIES IN SELECT CLAUSE
 -- ============================================================================
 -- Purpose:
 -- A subquery in the SELECT clause allows you to add calculated columns
