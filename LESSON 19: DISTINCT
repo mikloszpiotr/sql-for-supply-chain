@@ -1,0 +1,228 @@
+-- ============================================================================
+-- LESSON 19: DISTINCT – Removing duplicates and controlling data grain
+-- ============================================================================
+-- Purpose:
+-- DISTINCT is used to return UNIQUE values from a column or combination
+-- of columns.
+--
+-- In supply chain analytics, DISTINCT is commonly used to:
+-- - Identify unique master data entities
+-- - Validate data quality
+-- - Understand data coverage and structure
+--
+-- Use-cases covered:
+-- 1) Unique suppliers
+-- 2) Distinct product categories
+-- 3) Active warehouses
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- IMPORTANT CONCEPT: DATA GRAIN
+-- ----------------------------------------------------------------------------
+-- Data grain = what one row represents.
+--
+-- Example:
+-- - orders table → one row = one order
+-- - order_lines table → one row = one product per order
+--
+-- DISTINCT helps reduce data to a higher-level grain.
+
+
+-- ============================================================================
+-- USE-CASE 1: Unique suppliers
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 1: List all unique suppliers referenced by products
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which suppliers exist in our product master data?”
+
+SELECT DISTINCT
+    supplier_id
+FROM products;
+
+-- Result:
+-- - Each supplier_id appears only once
+-- - Useful for supplier coverage checks
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Unique supplier IDs with supplier names
+-- ----------------------------------------------------------------------------
+
+SELECT DISTINCT
+    s.supplier_id,
+    s.supplier_name
+FROM suppliers s
+INNER JOIN products p
+    ON s.supplier_id = p.supplier_id;
+
+-- Why DISTINCT is needed:
+-- - One supplier provides many products
+-- - Without DISTINCT, supplier would appear multiple times
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Count unique suppliers
+-- ----------------------------------------------------------------------------
+
+SELECT
+    COUNT(DISTINCT supplier_id) AS unique_supplier_count
+FROM products;
+
+-- Common KPI:
+-- - Number of active suppliers in product master
+
+
+-- ============================================================================
+-- USE-CASE 2: Distinct product categories
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 4: List all unique product categories
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “What categories exist in our portfolio?”
+
+SELECT DISTINCT
+    category
+FROM products;
+
+-- Typical use:
+-- - Category hierarchy validation
+-- - Filtering logic in BI tools
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Distinct category + supplier combinations
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which suppliers deliver which categories?”
+
+SELECT DISTINCT
+    p.category,
+    s.supplier_name
+FROM products p
+INNER JOIN suppliers s
+    ON p.supplier_id = s.supplier_id;
+
+-- Note:
+-- - DISTINCT applies to the FULL row combination
+-- - Same category with different suppliers → separate rows
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Count products per category (comparison with DISTINCT)
+-- ----------------------------------------------------------------------------
+
+SELECT
+    category,
+    COUNT(*) AS total_products,
+    COUNT(DISTINCT supplier_id) AS suppliers_per_category
+FROM products
+GROUP BY category;
+
+-- Shows difference between:
+-- - raw product count
+-- - unique supplier count
+
+
+-- ============================================================================
+-- USE-CASE 3: Active warehouses
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 7: Distinct warehouses with any inventory
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which warehouses currently store inventory?”
+
+SELECT DISTINCT
+    warehouse_id
+FROM inventory
+WHERE quantity > 0;
+
+-- Interpretation:
+-- - Warehouses with at least one SKU on-hand
+
+
+-- ----------------------------------------------------------------------------
+-- Example 8: Distinct active warehouses with names
+-- ----------------------------------------------------------------------------
+
+SELECT DISTINCT
+    w.warehouse_id,
+    w.warehouse_name,
+    w.city
+FROM warehouses w
+INNER JOIN inventory i
+    ON w.warehouse_id = i.warehouse_id
+WHERE i.quantity > 0;
+
+-- Why DISTINCT:
+-- - One warehouse holds many SKUs
+-- - Without DISTINCT → multiple repeated rows per warehouse
+
+
+-- ----------------------------------------------------------------------------
+-- Example 9: Count active warehouses
+-- ----------------------------------------------------------------------------
+
+SELECT
+    COUNT(DISTINCT warehouse_id) AS active_warehouse_count
+FROM inventory
+WHERE quantity > 0;
+
+-- Common KPI:
+-- - Network footprint utilization
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) DISTINCT removes duplicate rows from the SELECT output
+
+-- 2) DISTINCT applies to the ENTIRE selected column set:
+--    SELECT DISTINCT a, b
+--    → uniqueness is evaluated on (a + b) together
+
+-- 3) COUNT(DISTINCT column) is extremely common in analytics KPIs
+
+-- 4) DISTINCT does NOT aggregate values
+--    It only removes duplicates
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Using DISTINCT to hide bad joins
+--    If rows explode unexpectedly, fix the JOIN first.
+
+-- 2) Assuming DISTINCT improves performance
+--    It often increases computation cost.
+
+-- 3) Confusing DISTINCT with GROUP BY
+--    GROUP BY allows aggregation; DISTINCT does not.
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Find distinct customers who placed orders in the last 30 days
+
+-- 2) Count distinct SKUs per warehouse
+
+-- 3) List unique supplier-country combinations
+
+
+-- ============================================================================
+-- WHAT'S NEXT?
+-- ============================================================================
+-- Next lesson:
+-- - Subqueries in WHERE Clause
+-- ============================================================================
