@@ -1,0 +1,208 @@
+-- ============================================================================
+-- LESSON 24: EXISTS and NOT EXISTS – Reliable existence checks
+-- ============================================================================
+-- Purpose:
+-- EXISTS / NOT EXISTS are used to test whether at least one matching row
+-- exists in a subquery.
+--
+-- Why this matters in supply chain:
+-- - “Has activity happened?” (orders, shipments, receipts)
+-- - “Find missing links” (never ordered, never shipped)
+-- - Avoid NULL pitfalls common with NOT IN
+--
+-- Use-cases covered:
+-- 1) Suppliers with orders in the last 90 days
+-- 2) Products never shipped
+--
+-- What’s next:
+-- - CASE Statements (Simple)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- suppliers:
+-- - supplier_id
+-- - supplier_name
+--
+-- products:
+-- - product_id
+-- - product_name
+-- - supplier_id
+--
+-- orders:
+-- - order_id
+-- - order_date
+--
+-- order_lines:
+-- - order_id
+-- - product_id
+-- - quantity
+--
+-- shipments:
+-- - shipment_id
+-- - order_id
+-- - ship_date
+
+
+-- ============================================================================
+-- USE-CASE 1: Suppliers with orders in the last 90 days (EXISTS)
+-- ============================================================================
+-- Business question:
+-- “Which suppliers had at least one order in the last 90 days?”
+
+SELECT
+    s.supplier_id,
+    s.supplier_name
+FROM suppliers s
+WHERE EXISTS (
+    SELECT 1
+    FROM products p
+    INNER JOIN order_lines ol
+        ON p.product_id = ol.product_id
+    INNER JOIN orders o
+        ON ol.order_id = o.order_id
+    WHERE p.supplier_id = s.supplier_id
+      AND o.order_date >= (CURRENT_DATE - INTERVAL '90 days')
+);
+
+-- How it works:
+-- - Outer query iterates suppliers
+-- - Subquery checks if there is at least one matching order path:
+--   supplier → products → order_lines → orders
+-- - SELECT 1 is standard (we only care that a row exists)
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Suppliers with NO orders in the last 90 days (NOT EXISTS)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which suppliers are inactive in the last 90 days?”
+
+SELECT
+    s.supplier_id,
+    s.supplier_name
+FROM suppliers s
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM products p
+    INNER JOIN order_lines ol
+        ON p.product_id = ol.product_id
+    INNER JOIN orders o
+        ON ol.order_id = o.order_id
+    WHERE p.supplier_id = s.supplier_id
+      AND o.order_date >= (CURRENT_DATE - INTERVAL '90 days')
+);
+
+-- Notes:
+-- - Same logic as EXISTS, but inverted
+-- - Useful for supplier governance, risk, and performance reviews
+
+
+-- ============================================================================
+-- USE-CASE 2: Products never shipped (NOT EXISTS)
+-- ============================================================================
+-- Business question:
+-- “Which products have never been shipped (no shipment for any order line)?”
+
+SELECT
+    p.product_id,
+    p.product_name
+FROM products p
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM order_lines ol
+    INNER JOIN shipments sh
+        ON sh.order_id = ol.order_id
+    WHERE ol.product_id = p.product_id
+);
+
+-- Interpretation:
+-- - If there is no order_line + shipment path for the product → never shipped
+--
+-- Important:
+-- - This logic checks for “any shipment record linked to an order containing
+--   the product,” not necessarily delivered. Add delivery_date logic if needed.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Products ordered but never shipped (more precise operational exception)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which products appear on orders, but none of those orders has shipment info?”
+
+SELECT
+    p.product_id,
+    p.product_name
+FROM products p
+WHERE EXISTS (
+    SELECT 1
+    FROM order_lines ol
+    WHERE ol.product_id = p.product_id
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM order_lines ol
+    INNER JOIN shipments sh
+        ON sh.order_id = ol.order_id
+    WHERE ol.product_id = p.product_id
+);
+
+-- This returns:
+-- - Products that were ordered at least once
+-- - But have zero shipment records tied to those orders
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) EXISTS returns TRUE if the subquery finds at least one row
+
+-- 2) NOT EXISTS returns TRUE if the subquery finds zero rows
+
+-- 3) EXISTS is typically safer than NOT IN when NULLs are possible
+
+-- 4) EXISTS subqueries often correlate:
+--    ... WHERE p.supplier_id = s.supplier_id
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Using NOT IN with NULLs (can produce unexpected empty results)
+-- Prefer NOT EXISTS for “never happened” checks.
+
+-- 2) Forgetting correlation condition:
+-- If you omit p.supplier_id = s.supplier_id, your EXISTS becomes global.
+
+-- 3) Over-joining:
+-- Keep the EXISTS path minimal: only tables needed to prove existence.
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Find customers who placed orders in the last 30 days (EXISTS)
+
+-- 2) Find orders that have no order_lines (data quality) (NOT EXISTS)
+
+-- 3) Find warehouses that have zero inventory records (NOT EXISTS)
+
+
+-- ============================================================================
+-- WHAT'S NEXT: CASE Statements (Simple)
+-- ============================================================================
+-- CASE allows you to create business-friendly labels like:
+-- - shipped vs not shipped
+-- - active vs inactive
+-- - low stock vs ok
+--
+-- Next lesson will cover:
+-- - Simple CASE
+-- - Searched CASE (WHEN conditions)
+-- - Common supply chain flags
+-- ============================================================================
