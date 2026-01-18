@@ -1,0 +1,212 @@
+-- ============================================================================
+-- LESSON 25: CASE STATEMENTS (SIMPLE) – Business-friendly flags and buckets
+-- ============================================================================
+-- Purpose:
+-- CASE allows you to create derived columns such as categories, flags,
+-- and KPI labels directly in SQL.
+--
+-- This lesson focuses on practical supply chain use-cases:
+-- 1) Categorize inventory as High / Medium / Low
+-- 2) Flag late orders (based on dates and/or status)
+--
+-- What’s next:
+-- - CASE Statements (Complex) – nested logic, multi-conditions, priority rules
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory:
+-- - sku_id
+-- - warehouse_id
+-- - quantity
+-- - reorder_point
+--
+-- orders:
+-- - order_id
+-- - order_date
+-- - promised_date
+-- - ship_date
+-- - status
+--
+-- Note:
+-- If you do not have promised_date, you can use required_ship_date,
+-- requested_delivery_date, SLA_date, etc.
+
+
+-- ============================================================================
+-- USE-CASE 1: Categorizing inventory as High / Medium / Low
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Basic High / Medium / Low buckets based on quantity thresholds
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Classify inventory levels for reporting.”
+
+SELECT
+    sku_id,
+    warehouse_id,
+    quantity,
+    CASE
+        WHEN quantity >= 500 THEN 'HIGH'
+        WHEN quantity >= 200 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END AS inventory_level
+FROM inventory;
+
+-- Notes:
+-- - This is a “searched CASE” (most common form)
+-- - Order matters: first match wins
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Inventory status relative to reorder point (policy-driven)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Flag stock vs replenishment policy.”
+
+SELECT
+    sku_id,
+    warehouse_id,
+    quantity,
+    reorder_point,
+    CASE
+        WHEN quantity <= reorder_point THEN 'BELOW_REORDER_POINT'
+        ELSE 'ABOVE_REORDER_POINT'
+    END AS reorder_flag
+FROM inventory;
+
+-- Use-case:
+-- - Exception list for planners
+-- - Inputs for replenishment dashboards
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Combine both: quantity bucket + reorder risk flag
+-- ----------------------------------------------------------------------------
+
+SELECT
+    sku_id,
+    warehouse_id,
+    quantity,
+    reorder_point,
+    CASE
+        WHEN quantity >= 500 THEN 'HIGH'
+        WHEN quantity >= 200 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END AS inventory_level,
+    CASE
+        WHEN quantity <= reorder_point THEN 'RISK_LOW_STOCK'
+        ELSE 'OK'
+    END AS inventory_risk_flag
+FROM inventory;
+
+
+-- ============================================================================
+-- USE-CASE 2: Flagging late orders
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Late flag based on promised_date vs ship_date
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Was the order shipped late relative to the promised date?”
+--
+-- Interpretation:
+-- - If ship_date is after promised_date → late
+-- - If ship_date is NULL → still open (not shipped yet)
+
+SELECT
+    order_id,
+    order_date,
+    promised_date,
+    ship_date,
+    status,
+    CASE
+        WHEN ship_date IS NULL THEN 'OPEN_NOT_SHIPPED'
+        WHEN ship_date > promised_date THEN 'LATE'
+        ELSE 'ON_TIME'
+    END AS shipping_sla_flag
+FROM orders;
+
+-- Notes:
+-- - Uses NULL handling for operational reality
+-- - This is typically an “OTD / SLA adherence” component
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Late flag using CURRENT_DATE for open orders (dynamic)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which open orders are already late as of today?”
+
+SELECT
+    order_id,
+    order_date,
+    promised_date,
+    ship_date,
+    status,
+    CASE
+        WHEN ship_date IS NOT NULL AND ship_date > promised_date THEN 'LATE_SHIPPED'
+        WHEN ship_date IS NOT NULL AND ship_date <= promised_date THEN 'ON_TIME_SHIPPED'
+        WHEN ship_date IS NULL AND CURRENT_DATE > promised_date THEN 'LATE_OPEN'
+        ELSE 'OPEN_NOT_LATE_YET'
+    END AS order_late_status
+FROM orders;
+
+-- Notes:
+-- - This is still “simple” in concept: single derived status column
+-- - It covers both shipped and unshipped orders
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) CASE is evaluated top-to-bottom; first match wins
+
+-- 2) Always include an ELSE (even if it's 'UNKNOWN') for clean reporting
+
+-- 3) Use CASE to create:
+--    - operational flags (late vs on-time)
+--    - inventory health labels (high/medium/low)
+--    - planner-friendly exception buckets
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Overlapping thresholds in wrong order
+-- Example:
+-- WHEN quantity >= 200 THEN 'MEDIUM'
+-- WHEN quantity >= 500 THEN 'HIGH'
+-- -> 'HIGH' never occurs because 500 also matches >= 200 first
+
+-- 2) Ignoring NULL values (ship_date, promised_date)
+-- Always define how NULL should be treated
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Add a “critical” bucket: quantity <= reorder_point * 0.5
+
+-- 2) Create a case that flags orders as:
+--    'DELIVERED', 'SHIPPED', 'PENDING', 'CANCELLED' based on status column
+
+-- 3) Create a late flag using delivery_date instead of ship_date
+
+
+-- ============================================================================
+-- WHAT'S NEXT: CASE Statements (Complex)
+-- ============================================================================
+-- Next lesson will cover:
+-- - Multi-level priority rules (nested CASE)
+-- - Multiple conditions across several columns
+-- - “Exception hierarchy” flags (e.g., CANCELLED overrides LATE, etc.)
+-- - Creating multiple related flags in one query in a consistent way
+-- ============================================================================
