@@ -1,0 +1,215 @@
+-- ============================================================================
+-- LESSON 23: SUBQUERIES IN SELECT CLAUSE
+-- ============================================================================
+-- Purpose:
+-- A subquery in the SELECT clause allows you to add calculated columns
+-- that come from another query (benchmarks, totals, averages).
+--
+-- Typical supply chain uses:
+-- - % of total inventory
+-- - % of total sales
+-- - Compare a row metric vs global benchmark
+--
+-- Use-cases covered:
+-- 1) Percentage of total inventory by SKU / warehouse
+-- 2) Adding global totals directly to each row for context
+--
+-- What’s next:
+-- - Correlated Subqueries (row-by-row dependent subqueries)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory:
+-- - sku_id
+-- - warehouse_id
+-- - quantity
+--
+-- warehouses:
+-- - warehouse_id
+-- - warehouse_name
+--
+-- products:
+-- - sku_id
+-- - product_name
+-- - category
+
+
+-- ============================================================================
+-- USE-CASE 1: Add percentage of total inventory (network-wide)
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 1: SKU inventory share of total inventory (all warehouses)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “What % of total network inventory does each SKU represent?”
+
+SELECT
+    i.sku_id,
+    SUM(i.quantity) AS sku_total_qty,
+    (
+        SUM(i.quantity) * 1.0 /
+        (SELECT SUM(quantity) FROM inventory)
+    ) AS pct_of_total_inventory
+FROM inventory i
+GROUP BY i.sku_id;
+
+-- Notes:
+-- - Subquery (SELECT SUM(quantity) FROM inventory) returns a single value
+-- - Multiply by 1.0 forces decimal division in many SQL engines
+-- - Result is a fraction (e.g., 0.12 = 12%); format in BI layer if needed
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Add the total inventory value as a column for context
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Show SKU qty plus the total network qty on every row.”
+
+SELECT
+    i.sku_id,
+    SUM(i.quantity) AS sku_total_qty,
+    (SELECT SUM(quantity) FROM inventory) AS network_total_qty
+FROM inventory i
+GROUP BY i.sku_id;
+
+-- Use-case:
+-- - KPI tables where each row needs the same global denominator
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: SKU share of inventory WITH product attributes
+-- ----------------------------------------------------------------------------
+
+SELECT
+    p.sku_id,
+    p.product_name,
+    p.category,
+    SUM(i.quantity) AS sku_total_qty,
+    (
+        SUM(i.quantity) * 1.0 /
+        (SELECT SUM(quantity) FROM inventory)
+    ) AS pct_of_total_inventory
+FROM inventory i
+INNER JOIN products p
+    ON i.sku_id = p.sku_id
+GROUP BY
+    p.sku_id,
+    p.product_name,
+    p.category;
+
+
+-- ============================================================================
+-- USE-CASE 2: Warehouse inventory share of total inventory
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Warehouse share of total network inventory
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Which warehouses carry the largest portion of network stock?”
+
+SELECT
+    w.warehouse_id,
+    w.warehouse_name,
+    SUM(i.quantity) AS warehouse_total_qty,
+    (
+        SUM(i.quantity) * 1.0 /
+        (SELECT SUM(quantity) FROM inventory)
+    ) AS pct_of_total_inventory
+FROM warehouses w
+INNER JOIN inventory i
+    ON w.warehouse_id = i.warehouse_id
+GROUP BY
+    w.warehouse_id,
+    w.warehouse_name;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: SKU share inside a warehouse (warehouse-level denominator)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Within each warehouse, what % of that warehouse’s stock is each SKU?”
+--
+-- IMPORTANT:
+-- This example uses a correlated subquery pattern, but shown here as a preview.
+-- The next lesson will cover correlated subqueries in detail.
+
+SELECT
+    i.warehouse_id,
+    i.sku_id,
+    i.quantity,
+    (
+        i.quantity * 1.0 /
+        (
+            SELECT SUM(i2.quantity)
+            FROM inventory i2
+            WHERE i2.warehouse_id = i.warehouse_id
+        )
+    ) AS pct_of_warehouse_inventory
+FROM inventory i;
+
+-- Interpretation:
+-- - Denominator changes per row, based on the warehouse_id
+-- - This is powerful for ABC-like concentration analysis
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Subqueries in SELECT often return:
+--    - totals (SUM)
+--    - averages (AVG)
+--    - benchmarks (MAX/MIN)
+--
+-- 2) They are useful for:
+--    - percent-of-total
+--    - KPI context columns
+--    - quick benchmarking without building extra tables
+--
+-- 3) If the subquery depends on the outer query row, it becomes a
+--    correlated subquery (next lesson)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Integer division producing 0
+-- If both numerator and denominator are integers, some DBs return integer.
+-- Fix by:
+-- - multiplying by 1.0
+-- - casting: CAST(SUM(...) AS DECIMAL)
+--
+-- 2) Subquery returning multiple rows
+-- In SELECT clause, subqueries must return a single value per row.
+--
+-- 3) Performance concerns
+-- Non-correlated totals are usually fine.
+-- Correlated SELECT subqueries can be expensive at scale (addressed next).
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Add % of total sales per product using order_lines (quantity * unit_price)
+
+-- 2) Add global average inventory as a benchmark column next to each SKU
+
+-- 3) For each category, calculate category inventory and % of total network
+
+
+-- ============================================================================
+-- WHAT'S NEXT: CORRELATED SUBQUERIES
+-- ============================================================================
+-- Correlated subqueries reference columns from the outer query.
+-- They run “row-by-row” conceptually and are used for:
+-- - comparisons vs group-level average
+-- - percent-of-group calculations
+-- - top-N within group patterns
+-- ============================================================================
