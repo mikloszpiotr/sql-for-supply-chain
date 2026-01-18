@@ -1,0 +1,267 @@
+-- ============================================================================
+-- LESSON 26: CASE STATEMENTS (COMPLEX)
+-- ============================================================================
+-- Purpose:
+-- Complex CASE logic is used when:
+-- - You have multiple criteria and priority rules
+-- - You need multi-step classifications (e.g., ABC + risk flags)
+-- - You want one “final status” that resolves conflicts consistently
+--
+-- Supply chain use-cases covered:
+-- 1) ABC classification with multiple criteria (value + volatility + margin)
+-- 2) Dynamic status assignment (priority-based order status)
+--
+-- What’s next:
+-- - UNION and UNION ALL
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- product_metrics (pre-calculated KPI table, often built in ETL/SQL):
+-- - sku_id
+-- - annual_demand_units
+-- - unit_cost
+-- - margin_pct              -- 0.00 to 1.00
+-- - demand_cv               -- coefficient of variation (volatility)
+--
+-- orders (operational):
+-- - order_id
+-- - order_date
+-- - promised_date
+-- - ship_date
+-- - delivery_date
+-- - cancel_date
+-- - status                  -- raw status from system
+--
+-- Notes:
+-- - ABC is normally computed using cumulative value share. Here we show
+--   a practical “multi-criteria” ABC-like segmentation using CASE.
+-- - In real deployments, you would calculate value_share and cumulative_share
+--   using window functions; we keep this lesson focused on CASE logic.
+
+
+-- ============================================================================
+-- SECTION 1: ABC classification with multiple criteria
+-- ============================================================================
+-- Business goal:
+-- Create a planner-friendly classification using multiple signals:
+-- - Annual consumption value (demand * cost)
+-- - Volatility (demand_cv)
+-- - Margin (margin_pct)
+--
+-- Example rule set (customizable):
+-- - A: very high value OR (high value + low volatility) OR (high value + high margin)
+-- - B: medium value with reasonable volatility
+-- - C: low value or very volatile low/medium value
+-- - Add a “management overlay” flag for criticality
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Compute value metrics + multi-criteria ABC class
+-- ----------------------------------------------------------------------------
+
+SELECT
+    pm.sku_id,
+    pm.annual_demand_units,
+    pm.unit_cost,
+    (pm.annual_demand_units * pm.unit_cost) AS annual_consumption_value,
+    pm.margin_pct,
+    pm.demand_cv,
+
+    -- Main ABC classification (multi-criteria)
+    CASE
+        -- Priority 1: Extremely high value items are always 'A'
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 1000000 THEN 'A'
+
+        -- Priority 2: High value items with either stable demand or high margin
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 300000
+             AND (pm.demand_cv <= 0.50 OR pm.margin_pct >= 0.35) THEN 'A'
+
+        -- Medium segment: value is meaningful and volatility is not extreme
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 80000
+             AND pm.demand_cv <= 1.00 THEN 'B'
+
+        -- Everything else defaults to C
+        ELSE 'C'
+    END AS abc_class,
+
+    -- Overlay: inventory policy / attention flag (separate from ABC)
+    CASE
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 300000
+             AND pm.demand_cv > 1.00 THEN 'WATCH_VOLATILITY'
+        WHEN pm.margin_pct >= 0.50 THEN 'PROTECT_MARGIN'
+        ELSE 'STANDARD'
+    END AS management_overlay
+
+FROM product_metrics pm;
+
+-- Notes:
+-- - This shows how CASE can implement a business rule hierarchy
+-- - Two CASE expressions can coexist: one for segmentation, one for overlay flags
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Turn ABC + overlay into a final “planning policy tier”
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Give me one final tier that reflects both ABC and risk overlays.”
+
+SELECT
+    pm.sku_id,
+    (pm.annual_demand_units * pm.unit_cost) AS annual_consumption_value,
+    pm.margin_pct,
+    pm.demand_cv,
+
+    CASE
+        -- Tier 1: Always prioritize A items
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 1000000 THEN 'TIER_1_A_CRITICAL'
+
+        -- Tier 2: A items with volatility risk get special treatment
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 300000
+             AND pm.demand_cv > 1.00 THEN 'TIER_2_A_VOLATILE'
+
+        -- Tier 3: A items normal
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 300000 THEN 'TIER_3_A_STANDARD'
+
+        -- Tier 4: B items
+        WHEN (pm.annual_demand_units * pm.unit_cost) >= 80000 THEN 'TIER_4_B'
+
+        -- Tier 5: C items
+        ELSE 'TIER_5_C'
+    END AS planning_policy_tier
+
+FROM product_metrics pm;
+
+-- Why this is “complex”:
+-- - Multiple overlapping criteria
+-- - Explicit priority ordering
+-- - Produces an operationally meaningful single output tier
+
+
+-- ============================================================================
+-- SECTION 2: Dynamic status assignment (priority-based order status)
+-- ============================================================================
+-- Business goal:
+-- Build a consistent “final order status” based on multiple columns.
+-- Typical priority rules:
+-- - CANCELLED overrides everything
+-- - DELIVERED overrides SHIPPED
+-- - Late flags depend on promised_date vs actual dates
+-- - Open orders can become “LATE_OPEN” dynamically
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Final order status with priority rules + SLA interpretation
+-- ----------------------------------------------------------------------------
+
+SELECT
+    o.order_id,
+    o.order_date,
+    o.promised_date,
+    o.ship_date,
+    o.delivery_date,
+    o.cancel_date,
+    o.status AS raw_status,
+
+    CASE
+        -- Priority 1: Cancellation overrides all other logic
+        WHEN o.cancel_date IS NOT NULL OR o.status = 'Cancelled' THEN 'CANCELLED'
+
+        -- Priority 2: Delivered (and whether it was late)
+        WHEN o.delivery_date IS NOT NULL AND o.delivery_date > o.promised_date THEN 'DELIVERED_LATE'
+        WHEN o.delivery_date IS NOT NULL AND o.delivery_date <= o.promised_date THEN 'DELIVERED_ON_TIME'
+
+        -- Priority 3: Shipped but not delivered (and whether shipment was late)
+        WHEN o.ship_date IS NOT NULL AND o.ship_date > o.promised_date THEN 'SHIPPED_LATE'
+        WHEN o.ship_date IS NOT NULL AND o.ship_date <= o.promised_date THEN 'SHIPPED_ON_TIME'
+
+        -- Priority 4: Not shipped yet (dynamic lateness vs today)
+        WHEN o.ship_date IS NULL AND CURRENT_DATE > o.promised_date THEN 'OPEN_LATE'
+        WHEN o.ship_date IS NULL AND CURRENT_DATE <= o.promised_date THEN 'OPEN_ON_TRACK'
+
+        -- Fallback
+        ELSE 'UNKNOWN'
+    END AS final_order_status
+
+FROM orders o;
+
+-- Notes:
+-- - This resolves conflicts using a clear hierarchy
+-- - It works even if raw_status is inconsistent (common in real ERPs)
+-- - This logic is excellent for OTIF/OTD exception reporting
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Add a numeric SLA breach flag alongside the final status
+-- ----------------------------------------------------------------------------
+-- Useful for aggregation and KPIs (e.g., late_rate).
+
+SELECT
+    o.order_id,
+    o.promised_date,
+    o.ship_date,
+    o.delivery_date,
+
+    CASE
+        WHEN o.cancel_date IS NOT NULL OR o.status = 'Cancelled' THEN 0
+        WHEN o.delivery_date IS NOT NULL AND o.delivery_date > o.promised_date THEN 1
+        WHEN o.delivery_date IS NULL AND o.ship_date IS NOT NULL AND o.ship_date > o.promised_date THEN 1
+        WHEN o.delivery_date IS NULL AND o.ship_date IS NULL AND CURRENT_DATE > o.promised_date THEN 1
+        ELSE 0
+    END AS is_sla_breached
+
+FROM orders o;
+
+-- Notes:
+-- - Numeric flags are easier to aggregate: AVG(is_sla_breached) = late rate
+-- - Keep the “label” status and “numeric” flag separate for clean analytics
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Complex CASE is all about priority order (top-to-bottom)
+
+-- 2) Separate concerns:
+--    - One CASE for segmentation (ABC)
+--    - One CASE for overlays (risk, policy)
+--    - One CASE for final operational status (orders)
+
+-- 3) Always include ELSE for robustness and data quality visibility
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Putting broad conditions too early (it blocks later rules)
+-- 2) Missing NULL handling for promised_date / ship_date / delivery_date
+-- 3) Mixing “label” status and “numeric” KPI in one column
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Add a rule: if margin_pct < 0.10 then downgrade one class (A->B, B->C)
+
+-- 2) Add a status: if order is OPEN and promised_date is NULL then 'OPEN_NO_PROMISE_DATE'
+
+-- 3) Create a combined tier label: abc_class + '_' + management_overlay
+
+
+-- ============================================================================
+-- WHAT'S NEXT: UNION and UNION ALL
+-- ============================================================================
+-- UNION:
+-- - combines result sets and removes duplicates (like DISTINCT across rows)
+--
+-- UNION ALL:
+-- - combines result sets and keeps duplicates (faster, preserves full volume)
+--
+-- Next lesson will show:
+-- - Stacking datasets (e.g., current vs history)
+-- - Combining orders and returns into one activity feed
+-- - When to use UNION vs UNION ALL in analytics
+-- ============================================================================
