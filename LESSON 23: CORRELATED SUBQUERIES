@@ -1,0 +1,236 @@
+-- ============================================================================
+-- LESSON 23: CORRELATED SUBQUERIES
+-- ============================================================================
+-- Purpose:
+-- A correlated subquery references a value from the outer query.
+-- Conceptually, it runs once per outer row.
+--
+-- Supply chain analytics use-cases covered:
+-- 1) Find each product’s rank within its category (by price)
+-- 2) Compare inventory vs warehouse-specific average
+--
+-- What’s next:
+-- - EXISTS and NOT EXISTS (best practice for “does a record exist?” logic)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- products:
+-- - product_id
+-- - product_name
+-- - category
+-- - price
+--
+-- inventory:
+-- - sku_id
+-- - warehouse_id
+-- - quantity
+--
+-- warehouses:
+-- - warehouse_id
+-- - warehouse_name
+
+
+-- ============================================================================
+-- USE-CASE 1: Each product’s rank within its category (by price)
+-- ============================================================================
+-- Business question:
+-- “Within each category, what is the price rank of every product?”
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Category rank using a correlated subquery (dense rank style)
+-- ----------------------------------------------------------------------------
+-- Ranking logic:
+-- rank = 1 + number of products in same category with higher price
+--
+-- Notes:
+-- - If multiple products share the same price, they get the same rank
+--   (dense-rank-like behavior: 1,2,2,3...)
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price,
+    1 + (
+        SELECT COUNT(*)
+        FROM products p2
+        WHERE p2.category = p.category
+          AND p2.price > p.price
+    ) AS price_rank_in_category
+FROM products p
+ORDER BY
+    p.category,
+    price_rank_in_category,
+    p.price DESC;
+
+-- Why this is correlated:
+-- - Inner query references outer row: p.category and p.price
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Top 3 priced products per category (correlated filter)
+-- ----------------------------------------------------------------------------
+-- Business question:
+-- “Show only top 3 most expensive products within each category.”
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.category,
+    p.price
+FROM products p
+WHERE 1 + (
+        SELECT COUNT(*)
+        FROM products p2
+        WHERE p2.category = p.category
+          AND p2.price > p.price
+      ) <= 3
+ORDER BY
+    p.category,
+    p.price DESC;
+
+-- Notes:
+-- - This returns all ties that still satisfy the rank rule
+-- - For exact top-N behavior with ties handled differently, window functions
+--   are often preferred, but correlated subqueries are a core SQL pattern.
+
+
+-- ============================================================================
+-- USE-CASE 2: Compare inventory to warehouse-specific averages
+-- ============================================================================
+-- Business question:
+-- “Which SKU records are below/above the average stock level of that warehouse?”
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Add warehouse-specific average as a calculated column
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.warehouse_id,
+    i.sku_id,
+    i.quantity,
+    (
+        SELECT AVG(i2.quantity)
+        FROM inventory i2
+        WHERE i2.warehouse_id = i.warehouse_id
+    ) AS avg_qty_in_warehouse,
+    (
+        i.quantity - (
+            SELECT AVG(i2.quantity)
+            FROM inventory i2
+            WHERE i2.warehouse_id = i.warehouse_id
+        )
+    ) AS delta_vs_warehouse_avg
+FROM inventory i
+ORDER BY
+    i.warehouse_id,
+    delta_vs_warehouse_avg;
+
+-- Notes:
+-- - Denominator changes per warehouse_id
+-- - This is a common pattern for “relative low stock” detection
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Return only below-average inventory records per warehouse
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.warehouse_id,
+    i.sku_id,
+    i.quantity
+FROM inventory i
+WHERE i.quantity < (
+    SELECT AVG(i2.quantity)
+    FROM inventory i2
+    WHERE i2.warehouse_id = i.warehouse_id
+);
+
+-- Interpretation:
+-- - Filters to “below typical level” SKUs within each warehouse
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Flag below-average records (instead of filtering them out)
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.warehouse_id,
+    i.sku_id,
+    i.quantity,
+    CASE
+        WHEN i.quantity < (
+            SELECT AVG(i2.quantity)
+            FROM inventory i2
+            WHERE i2.warehouse_id = i.warehouse_id
+        ) THEN 'BELOW_WAREHOUSE_AVG'
+        ELSE 'AT_OR_ABOVE_WAREHOUSE_AVG'
+    END AS vs_warehouse_avg_flag
+FROM inventory i;
+
+-- Use-case:
+-- - Dashboards where you want full population + status label
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+
+-- 1) Correlated subqueries reference outer query columns
+--    Example: p2.category = p.category
+
+-- 2) They can be used for:
+--    - rank within group
+--    - percent-of-group
+--    - compare to group average
+--    - top-N within group
+
+-- 3) Performance:
+--    Correlated subqueries can be slower on large tables.
+--    (Window functions or derived tables can be more efficient.)
+--    Still, this logic is foundational and frequently appears in SQL interviews.
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+
+-- 1) Forgetting the correlation condition:
+--    If you omit p2.category = p.category, you compute global rank by accident.
+
+-- 2) Subquery returning multiple rows:
+--    In WHERE and SELECT contexts, ensure the subquery returns one value.
+
+-- 3) Confusing ranking style:
+--    The COUNT-based approach behaves like dense rank for ties.
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+
+-- 1) Rank products within category by total sales value
+--    (hint: correlate on category, compare aggregated sales)
+
+-- 2) Find SKUs that are above 2x the warehouse average
+
+-- 3) Return only the cheapest product in each category
+--    (hint: count products with lower price)
+
+
+-- ============================================================================
+-- WHAT'S NEXT: EXISTS and NOT EXISTS
+-- ============================================================================
+-- EXISTS checks if at least one row exists in a subquery.
+-- NOT EXISTS checks that no rows exist.
+--
+-- These are best-practice for:
+-- - “products never ordered”
+-- - “orders without shipments”
+-- - “suppliers with no activity”
+--
+-- They avoid common NULL problems seen with NOT IN.
+-- ============================================================================
