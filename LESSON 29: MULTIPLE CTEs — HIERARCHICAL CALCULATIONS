@@ -374,3 +374,6 @@ ORDER BY
 --    - If demand_cv > 1.2, add extra scrap_pct to COGS.
 -- 3) Build the same output by customer_id instead of warehouse_id.
 -- ============================================================================
+-- WHAT'S NEXT:
+-- Recursive CTEs
+-- ============================================================================
