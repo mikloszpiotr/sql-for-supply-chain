@@ -1,0 +1,300 @@
+-- ============================================================================
+-- LESSON 28: COMMON TABLE EXPRESSIONS (CTEs) — BASIC
+-- ============================================================================
+-- Purpose:
+-- Common Table Expressions (CTEs) allow you to:
+-- - Break complex SQL logic into readable, sequential steps
+-- - Create temporary named result sets
+-- - Improve maintainability and business readability
+--
+-- CTEs are especially important in supply chain analytics because:
+-- - Logic is usually multi-step (filter → calculate → aggregate → classify)
+-- - Business rules must be readable and auditable
+-- - One query often feeds KPIs, dashboards, or planning decisions
+--
+-- Supply chain use-cases covered:
+-- 1) Step-by-step inventory calculation
+-- 2) Cleaning and standardizing raw data
+-- 3) Building KPIs in logical layers
+-- 4) Replacing deeply nested subqueries
+--
+-- Syntax reminder:
+-- WITH cte_name AS (
+--     SELECT ...
+-- )
+-- SELECT ...
+-- FROM cte_name;
+--
+-- Key rule:
+-- - CTE exists ONLY for the duration of the query
+-- - It is not stored in the database
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_transactions:
+-- - warehouse_id
+-- - sku_id
+-- - transaction_date
+-- - transaction_type     -- RECEIPT / ISSUE / ADJUSTMENT
+-- - quantity
+--
+-- inventory_snapshot:
+-- - warehouse_id
+-- - sku_id
+-- - snapshot_date
+-- - on_hand_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Why CTEs matter (business readability)
+-- ============================================================================
+-- Without CTEs, queries quickly become:
+-- - Hard to read
+-- - Hard to debug
+-- - Hard to explain to planners or managers
+--
+-- With CTEs:
+-- - Each step has a clear business meaning
+-- - Logic flows top → bottom like a process
+-- - You can validate each step independently
+
+
+-- ============================================================================
+-- SECTION 2: Basic CTE — simple filtering step
+-- ============================================================================
+-- Business goal:
+-- Start with clean, relevant data before doing any calculations.
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Filter to current-month transactions
+-- ----------------------------------------------------------------------------
+
+WITH current_month_txn AS (
+    SELECT
+        it.warehouse_id,
+        it.sku_id,
+        it.transaction_date,
+        it.transaction_type,
+        it.quantity
+    FROM inventory_transactions it
+    WHERE it.transaction_date >= DATE_TRUNC('month', CURRENT_DATE)
+)
+SELECT
+    *
+FROM current_month_txn
+ORDER BY
+    warehouse_id,
+    sku_id,
+    transaction_date;
+
+-- Notes:
+-- - CTE name acts like a temporary table
+-- - Improves clarity compared to repeating the WHERE clause
+-- - Easy to reuse in later steps
+
+
+-- ============================================================================
+-- SECTION 3: CTE for calculation logic
+-- ============================================================================
+-- Business goal:
+-- Convert raw movements into signed quantities.
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Normalize transaction sign using CTE
+-- ----------------------------------------------------------------------------
+-- Receipts increase stock
+-- Issues decrease stock
+
+WITH normalized_transactions AS (
+    SELECT
+        it.warehouse_id,
+        it.sku_id,
+        it.transaction_date,
+        it.transaction_type,
+        CASE
+            WHEN it.transaction_type = 'RECEIPT' THEN it.quantity
+            WHEN it.transaction_type = 'ISSUE' THEN -it.quantity
+            WHEN it.transaction_type = 'ADJUSTMENT' THEN it.quantity
+            ELSE 0
+        END AS signed_qty
+    FROM inventory_transactions it
+)
+SELECT
+    *
+FROM normalized_transactions
+ORDER BY
+    warehouse_id,
+    sku_id,
+    transaction_date;
+
+-- Why CTE:
+-- - Keeps business logic readable
+-- - Prevents repeating CASE expressions
+-- - Enables reuse in later aggregation steps
+
+
+-- ============================================================================
+-- SECTION 4: Multi-step CTE chain (most common real use)
+-- ============================================================================
+-- Business goal:
+-- Calculate current on-hand quantity from transactions.
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Step-by-step inventory calculation
+-- ----------------------------------------------------------------------------
+
+WITH
+-- Step 1: Normalize transaction sign
+txn_normalized AS (
+    SELECT
+        it.warehouse_id,
+        it.sku_id,
+        it.transaction_date,
+        CASE
+            WHEN it.transaction_type = 'RECEIPT' THEN it.quantity
+            WHEN it.transaction_type = 'ISSUE' THEN -it.quantity
+            WHEN it.transaction_type = 'ADJUSTMENT' THEN it.quantity
+            ELSE 0
+        END AS signed_qty
+    FROM inventory_transactions it
+),
+
+-- Step 2: Aggregate movements per SKU and warehouse
+txn_aggregated AS (
+    SELECT
+        tn.warehouse_id,
+        tn.sku_id,
+        SUM(tn.signed_qty) AS net_movement_qty
+    FROM txn_normalized tn
+    GROUP BY
+        tn.warehouse_id,
+        tn.sku_id
+)
+
+-- Step 3: Final select
+SELECT
+    ta.warehouse_id,
+    ta.sku_id,
+    ta.net_movement_qty AS calculated_on_hand_qty
+FROM txn_aggregated ta
+ORDER BY
+    ta.warehouse_id,
+    ta.sku_id;
+
+-- Notes:
+-- - Each CTE has ONE responsibility
+-- - Query reads like a business process
+-- - Easy to debug by running each step separately
+
+
+-- ============================================================================
+-- SECTION 5: CTE vs subquery (why CTE wins)
+-- ============================================================================
+-- Subquery version (harder to read):
+
+SELECT
+    t.warehouse_id,
+    t.sku_id,
+    SUM(
+        CASE
+            WHEN t.transaction_type = 'RECEIPT' THEN t.quantity
+            WHEN t.transaction_type = 'ISSUE' THEN -t.quantity
+            ELSE 0
+        END
+    ) AS on_hand_qty
+FROM inventory_transactions t
+GROUP BY
+    t.warehouse_id,
+    t.sku_id;
+
+-- CTE version (preferred in analytics):
+-- - Same logic
+-- - Much easier to extend (add filters, joins, KPIs)
+
+
+-- ============================================================================
+-- SECTION 6: CTE for KPI building (planner-style thinking)
+-- ============================================================================
+-- Business goal:
+-- Build KPIs gradually instead of in one massive SELECT.
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Inventory KPI layers
+-- ----------------------------------------------------------------------------
+
+WITH
+base_inventory AS (
+    SELECT
+        s.warehouse_id,
+        s.sku_id,
+        s.on_hand_qty
+    FROM inventory_snapshot s
+    WHERE s.snapshot_date = CURRENT_DATE
+),
+
+inventory_flags AS (
+    SELECT
+        bi.warehouse_id,
+        bi.sku_id,
+        bi.on_hand_qty,
+        CASE
+            WHEN bi.on_hand_qty = 0 THEN 'STOCKOUT'
+            WHEN bi.on_hand_qty < 10 THEN 'LOW_STOCK'
+            ELSE 'OK'
+        END AS inventory_status
+    FROM base_inventory bi
+)
+
+SELECT
+    warehouse_id,
+    inventory_status,
+    COUNT(DISTINCT sku_id) AS sku_count
+FROM inventory_flags
+GROUP BY
+    warehouse_id,
+    inventory_status
+ORDER BY
+    warehouse_id,
+    inventory_status;
+
+-- Why this matters:
+-- - base_inventory = data layer
+-- - inventory_flags = business logic layer
+-- - final SELECT = reporting layer
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) CTEs create temporary named result sets
+-- 2) They improve readability, not storage
+-- 3) Multiple CTEs can be chained
+-- 4) Each CTE should represent ONE business step
+-- 5) CTEs are ideal for analytics and KPI logic
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Putting too much logic into one CTE
+-- 2) Using vague names like cte1, temp2
+-- 3) Treating CTEs as permanent tables
+-- 4) Over-nesting logic instead of sequencing it
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Add a CTE that filters only active SKUs.
+-- 2) Add a CTE that calculates available_qty =
+--    on_hand_qty - allocated_qty.
+-- 3) Add a final CTE that flags negative inventory.
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Multiple CTEs
+-- ============================================================================
