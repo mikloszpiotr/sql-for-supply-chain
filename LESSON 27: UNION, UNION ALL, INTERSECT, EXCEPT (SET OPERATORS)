@@ -1,0 +1,401 @@
+-- ============================================================================
+-- LESSON 27: UNION, UNION ALL, INTERSECT, EXCEPT (SET OPERATORS)
+-- ============================================================================
+-- Purpose:
+-- Set operators combine or compare result sets that have the same “shape”:
+-- - Same number of columns
+-- - Compatible data types in each position
+-- - Matching business meaning per column
+--
+-- Supply chain use-cases covered:
+-- 1) UNION / UNION ALL: Combine inventory from multiple warehouses
+-- 2) UNION / UNION ALL: Consolidate regional snapshots (EU vs US vs APAC)
+-- 3) INTERSECT: Find SKUs present in BOTH warehouses (overlap)
+-- 4) EXCEPT: Find SKUs present in Warehouse A but missing in Warehouse B (gaps)
+--
+-- Notes:
+-- - UNION removes duplicates (like DISTINCT across full rows).
+-- - UNION ALL keeps duplicates (faster; preserves volume).
+-- - INTERSECT returns rows common to both sides.
+-- - EXCEPT returns rows from left side not found on right side.
+--
+-- Dialect notes:
+-- - Supported: PostgreSQL, SQL Server, Oracle.
+-- - MySQL does NOT support INTERSECT/EXCEPT (use joins instead).
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_by_warehouse:
+-- - warehouse_id
+-- - sku_id
+-- - snapshot_date
+-- - on_hand_qty
+-- - in_transit_qty
+-- - allocated_qty
+-- - region_code
+--
+-- regional_inventory_snapshots (optional alternative structure):
+-- - region_code
+-- - dc_id
+-- - sku_id
+-- - snapshot_date
+-- - on_hand_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: UNION vs UNION ALL (Combining inventory from multiple warehouses)
+-- ============================================================================
+-- Business goal:
+-- Create one inventory view across multiple warehouses (e.g., WH_A and WH_B).
+
+
+-- ----------------------------------------------------------------------------
+-- Example 1: UNION ALL to STACK inventory rows (keep full volume)
+-- ----------------------------------------------------------------------------
+-- Use when:
+-- - You expect no duplicates OR duplicates are meaningful (e.g., multiple warehouses)
+-- - You want best performance
+-- - You will aggregate later
+
+SELECT
+    'WH_A' AS warehouse_id,
+    i.sku_id,
+    i.snapshot_date,
+    i.on_hand_qty,
+    i.in_transit_qty,
+    i.allocated_qty
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_A'
+  AND i.snapshot_date = CURRENT_DATE
+
+UNION ALL
+
+SELECT
+    'WH_B' AS warehouse_id,
+    i.sku_id,
+    i.snapshot_date,
+    i.on_hand_qty,
+    i.in_transit_qty,
+    i.allocated_qty
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_B'
+  AND i.snapshot_date = CURRENT_DATE;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: UNION ALL + consolidation (total available across WH_A + WH_B)
+-- ----------------------------------------------------------------------------
+-- Typical planner metric:
+-- available_qty = on_hand + in_transit - allocated
+
+WITH combined AS (
+    SELECT
+        i.warehouse_id,
+        i.sku_id,
+        i.snapshot_date,
+        i.on_hand_qty,
+        i.in_transit_qty,
+        i.allocated_qty
+    FROM inventory_by_warehouse i
+    WHERE i.warehouse_id = 'WH_A'
+      AND i.snapshot_date = CURRENT_DATE
+
+    UNION ALL
+
+    SELECT
+        i.warehouse_id,
+        i.sku_id,
+        i.snapshot_date,
+        i.on_hand_qty,
+        i.in_transit_qty,
+        i.allocated_qty
+    FROM inventory_by_warehouse i
+    WHERE i.warehouse_id = 'WH_B'
+      AND i.snapshot_date = CURRENT_DATE
+)
+SELECT
+    c.sku_id,
+    c.snapshot_date,
+    SUM(c.on_hand_qty) AS total_on_hand_qty,
+    SUM(c.in_transit_qty) AS total_in_transit_qty,
+    SUM(c.allocated_qty) AS total_allocated_qty,
+    SUM(c.on_hand_qty + c.in_transit_qty - c.allocated_qty) AS total_available_qty
+FROM combined c
+GROUP BY
+    c.sku_id,
+    c.snapshot_date
+ORDER BY
+    c.sku_id;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3: UNION (removes duplicates) for “unique SKU list” across warehouses
+-- ----------------------------------------------------------------------------
+-- Use when:
+-- - You want a de-duplicated list of SKUs present anywhere
+-- - You do not care which warehouse they came from
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_A'
+  AND i.snapshot_date = CURRENT_DATE
+
+UNION
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_B'
+  AND i.snapshot_date = CURRENT_DATE;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Common pitfall — UNION vs UNION ALL with identical rows
+-- ----------------------------------------------------------------------------
+-- If both sides can produce identical full rows (same sku_id, snapshot_date, qty),
+-- UNION will drop duplicates and undercount later aggregations.
+-- For supply chain volumes, default to UNION ALL, then aggregate intentionally.
+
+
+-- ============================================================================
+-- SECTION 2: UNION vs UNION ALL (Consolidating regional data)
+-- ============================================================================
+-- Business goal:
+-- Combine separate regional snapshots into a single global dataset.
+
+-- ----------------------------------------------------------------------------
+-- Example 5: UNION ALL to consolidate regions (EU, US, APAC) into one dataset
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.region_code,
+    i.warehouse_id,
+    i.sku_id,
+    i.snapshot_date,
+    i.on_hand_qty
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'EU'
+  AND i.snapshot_date = CURRENT_DATE
+
+UNION ALL
+
+SELECT
+    i.region_code,
+    i.warehouse_id,
+    i.sku_id,
+    i.snapshot_date,
+    i.on_hand_qty
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'US'
+  AND i.snapshot_date = CURRENT_DATE
+
+UNION ALL
+
+SELECT
+    i.region_code,
+    i.warehouse_id,
+    i.sku_id,
+    i.snapshot_date,
+    i.on_hand_qty
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'APAC'
+  AND i.snapshot_date = CURRENT_DATE;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Global KPI after union-all (global on-hand by SKU)
+-- ----------------------------------------------------------------------------
+
+WITH global_inventory AS (
+    SELECT
+        i.region_code,
+        i.sku_id,
+        i.snapshot_date,
+        i.on_hand_qty
+    FROM inventory_by_warehouse i
+    WHERE i.region_code = 'EU'
+      AND i.snapshot_date = CURRENT_DATE
+
+    UNION ALL
+
+    SELECT
+        i.region_code,
+        i.sku_id,
+        i.snapshot_date,
+        i.on_hand_qty
+    FROM inventory_by_warehouse i
+    WHERE i.region_code = 'US'
+      AND i.snapshot_date = CURRENT_DATE
+
+    UNION ALL
+
+    SELECT
+        i.region_code,
+        i.sku_id,
+        i.snapshot_date,
+        i.on_hand_qty
+    FROM inventory_by_warehouse i
+    WHERE i.region_code = 'APAC'
+      AND i.snapshot_date = CURRENT_DATE
+)
+SELECT
+    gi.sku_id,
+    gi.snapshot_date,
+    SUM(gi.on_hand_qty) AS global_on_hand_qty
+FROM global_inventory gi
+GROUP BY
+    gi.sku_id,
+    gi.snapshot_date
+ORDER BY
+    gi.sku_id;
+
+
+-- ============================================================================
+-- SECTION 3: INTERSECT (Find overlap between warehouses / regions)
+-- ============================================================================
+-- Business goal:
+-- Identify SKUs that are stocked in BOTH warehouses.
+-- Use-case examples:
+-- - Dual-sourcing / redundant stocking
+-- - SKU rationalization opportunities
+-- - Cross-DC substitution checks
+
+-- ----------------------------------------------------------------------------
+-- Example 7: SKUs present in BOTH WH_A and WH_B (same snapshot date)
+-- ----------------------------------------------------------------------------
+-- INTERSECT compares full rows, so align the same columns on both sides.
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_A'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0
+
+INTERSECT
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_B'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 8: Overlap of (sku_id, region_code) between two regions
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.sku_id,
+    i.region_code
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'EU'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0
+
+INTERSECT
+
+SELECT
+    i.sku_id,
+    i.region_code
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'US'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0;
+
+
+-- ============================================================================
+-- SECTION 4: EXCEPT (Find gaps / missing SKUs)
+-- ============================================================================
+-- Business goal:
+-- Find SKUs that exist in one place but not the other.
+-- Use-case examples:
+-- - “WH_B is missing these SKUs vs WH_A”
+-- - “Region US missing EU core assortment”
+-- - DC onboarding checks (new warehouse should carry a target SKU list)
+
+-- ----------------------------------------------------------------------------
+-- Example 9: SKUs in WH_A but NOT in WH_B (same snapshot date)
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_A'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0
+
+EXCEPT
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.warehouse_id = 'WH_B'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 10: SKUs in EU assortment but missing in US assortment
+-- ----------------------------------------------------------------------------
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'EU'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0
+
+EXCEPT
+
+SELECT
+    i.sku_id
+FROM inventory_by_warehouse i
+WHERE i.region_code = 'US'
+  AND i.snapshot_date = CURRENT_DATE
+  AND i.on_hand_qty > 0;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) UNION removes duplicates (can accidentally drop volume rows)
+-- 2) UNION ALL is the default for supply chain “stack then aggregate”
+-- 3) INTERSECT finds common rows across both result sets
+-- 4) EXCEPT finds left-only rows (gap analysis)
+-- 5) All set operators require matching column count + compatible types
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Different column order between the two SELECTs (leads to nonsense matches)
+-- 2) Using UNION instead of UNION ALL before aggregation (undercount risk)
+-- 3) Forgetting to align filters (snapshot_date, >0 conditions) on both sides
+-- 4) Using INTERSECT/EXCEPT in MySQL (not supported) without rewrite
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Build an “activity feed” table by UNION ALL of:
+--    - inventory adjustments
+--    - receipts
+--    - shipments
+--
+-- 2) Use EXCEPT to find SKUs that are in the master assortment table but missing
+--    from a given warehouse snapshot.
+--
+-- 3) Use INTERSECT to find SKUs that are stocked in BOTH (EU and APAC),
+--    then join that result to a product master to pull category.
+--
+-- ============================================================================
+-- WHAT'S NEXT (Suggested): CTEs and window functions for inventory analytics
+-- - Common Table Expressions (CTEs) - Basic
+-- ============================================================================
