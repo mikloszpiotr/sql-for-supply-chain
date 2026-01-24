@@ -1,0 +1,284 @@
+-- ============================================================================
+-- LESSON 32: WINDOW FUNCTIONS — RANK() vs DENSE_RANK()
+-- Topic: Handling ties in supplier performance rankings
+-- ============================================================================
+-- Purpose:
+-- RANK() and DENSE_RANK() are window functions used to rank rows within groups
+-- when ties are possible and meaningful.
+--
+-- Key difference:
+-- - RANK()      → leaves gaps after ties
+-- - DENSE_RANK()→ no gaps after ties
+--
+-- This distinction is extremely important in supplier performance,
+-- scorecards, and governance reporting.
+--
+-- Example ranking:
+-- Performance score:
+-- 95
+-- 95
+-- 90
+--
+-- RANK():       1, 1, 3
+-- DENSE_RANK(): 1, 1, 2
+--
+-- ROW_NUMBER() would incorrectly force:
+-- 1, 2, 3  (breaks the tie artificially)
+--
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- supplier_performance:
+-- - supplier_id
+-- - supplier_name
+-- - region_code
+-- - evaluation_month
+-- - otif_pct                 -- on-time in-full %
+-- - defect_rate_pct          -- quality defects %
+-- - lead_time_variance_days
+--
+-- Notes:
+-- - Supplier scorecards almost always allow ties.
+-- - Ranking logic must be explainable to procurement and suppliers.
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Build a supplier performance score
+-- ============================================================================
+-- Business goal:
+-- Convert multiple KPIs into one comparable performance score.
+
+-- Example scoring logic (simplified):
+-- - OTIF: higher is better
+-- - Defect rate: lower is better
+-- - Lead time variance: lower is better
+
+WITH supplier_scores AS (
+    SELECT
+        sp.supplier_id,
+        sp.supplier_name,
+        sp.region_code,
+        sp.evaluation_month,
+
+        sp.otif_pct,
+        sp.defect_rate_pct,
+        sp.lead_time_variance_days,
+
+        -- Composite score (example weighting)
+        (
+            (sp.otif_pct * 0.5)
+            + ((1 - sp.defect_rate_pct) * 0.3)
+            + ((1 / (1 + sp.lead_time_variance_days)) * 0.2)
+        ) AS performance_score
+    FROM supplier_performance sp
+)
+SELECT
+    *
+FROM supplier_scores;
+
+
+-- ============================================================================
+-- SECTION 2: RANK() — competition-style ranking
+-- ============================================================================
+-- Business meaning:
+-- “If two suppliers tie, they share the same position,
+-- and the next rank is skipped.”
+
+-- Typical use-cases:
+-- - Award selection
+-- - Preferred supplier lists
+-- - Competitive benchmarking
+
+WITH ranked_suppliers AS (
+    SELECT
+        ss.*,
+
+        RANK() OVER (
+            PARTITION BY ss.region_code, ss.evaluation_month
+            ORDER BY ss.performance_score DESC
+        ) AS supplier_rank
+    FROM supplier_scores ss
+)
+SELECT
+    region_code,
+    evaluation_month,
+    supplier_id,
+    supplier_name,
+    performance_score,
+    supplier_rank
+FROM ranked_suppliers
+ORDER BY
+    region_code,
+    supplier_rank;
+
+-- Interpretation:
+-- - Two suppliers can both be Rank 1
+-- - Next supplier becomes Rank 3
+-- - Reflects competitive reality
+
+
+-- ============================================================================
+-- SECTION 3: DENSE_RANK() — tier-style ranking
+-- ============================================================================
+-- Business meaning:
+-- “If suppliers tie, they share the rank,
+-- but the next rank continues without gaps.”
+
+-- Typical use-cases:
+-- - Supplier tiers (Gold / Silver / Bronze)
+-- - Contract policy bands
+-- - Governance segmentation
+
+WITH dense_ranked_suppliers AS (
+    SELECT
+        ss.*,
+
+        DENSE_RANK() OVER (
+            PARTITION BY ss.region_code, ss.evaluation_month
+            ORDER BY ss.performance_score DESC
+        ) AS supplier_dense_rank
+    FROM supplier_scores ss
+)
+SELECT
+    region_code,
+    evaluation_month,
+    supplier_id,
+    supplier_name,
+    performance_score,
+    supplier_dense_rank
+FROM dense_ranked_suppliers
+ORDER BY
+    region_code,
+    supplier_dense_rank;
+
+
+-- ============================================================================
+-- SECTION 4: Translate ranks into supplier tiers
+-- ============================================================================
+-- Business goal:
+-- Convert numeric ranks into governance-friendly categories.
+
+WITH ranked AS (
+    SELECT
+        ss.*,
+
+        DENSE_RANK() OVER (
+            PARTITION BY ss.region_code, ss.evaluation_month
+            ORDER BY ss.performance_score DESC
+        ) AS dense_rank
+    FROM supplier_scores ss
+)
+SELECT
+    region_code,
+    evaluation_month,
+    supplier_id,
+    supplier_name,
+    performance_score,
+
+    dense_rank,
+
+    CASE
+        WHEN dense_rank = 1 THEN 'TIER_1_PREFERRED'
+        WHEN dense_rank = 2 THEN 'TIER_2_APPROVED'
+        ELSE 'TIER_3_MONITOR'
+    END AS supplier_tier
+FROM ranked
+ORDER BY
+    region_code,
+    dense_rank,
+    supplier_name;
+
+-- Why DENSE_RANK here:
+-- - You want continuous tiers
+-- - You do NOT want missing tiers due to ties
+
+
+-- ============================================================================
+-- SECTION 5: Compare ROW_NUMBER vs RANK vs DENSE_RANK
+-- ============================================================================
+-- Same performance_score values:
+--
+-- Score:  92   92   88   80
+--
+-- ROW_NUMBER():   1   2   3   4   (forces false order)
+-- RANK():         1   1   3   4   (gap appears)
+-- DENSE_RANK():   1   1   2   3   (clean tiers)
+--
+-- Supply chain guidance:
+-- - ROW_NUMBER → selection (pick ONE)
+-- - RANK → competition / awards
+-- - DENSE_RANK → segmentation / policy tiers
+
+
+-- ============================================================================
+-- SECTION 6: Real supply chain example — preferred suppliers per region
+-- ============================================================================
+-- Business rule:
+-- - All suppliers with DENSE_RANK = 1 are “preferred”
+-- - No artificial limit if multiple suppliers tie
+
+WITH ranked AS (
+    SELECT
+        sp.region_code,
+        sp.supplier_id,
+        sp.supplier_name,
+
+        DENSE_RANK() OVER (
+            PARTITION BY sp.region_code
+            ORDER BY
+                (
+                    (sp.otif_pct * 0.5)
+                    + ((1 - sp.defect_rate_pct) * 0.3)
+                    + ((1 / (1 + sp.lead_time_variance_days)) * 0.2)
+                ) DESC
+        ) AS dense_rank
+    FROM supplier_performance sp
+)
+SELECT
+    region_code,
+    supplier_id,
+    supplier_name
+FROM ranked
+WHERE dense_rank = 1
+ORDER BY
+    region_code,
+    supplier_name;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) RANK() allows gaps after ties
+-- 2) DENSE_RANK() does NOT allow gaps
+-- 3) ROW_NUMBER() should NOT be used when ties matter
+-- 4) Supplier rankings must be explainable and defensible
+-- 5) Choose ranking function based on business meaning, not habit
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Using ROW_NUMBER() for scorecards
+-- 2) Not defining ORDER BY clearly
+-- 3) Mixing ranking logic with aggregation
+-- 4) Presenting rank without explaining tie-handling
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Create quarterly supplier rankings per region.
+-- 2) Assign contract length based on dense_rank (1 → 3 years, 2 → 2 years).
+-- 3) Compare how many suppliers qualify as Tier 1 using RANK vs DENSE_RANK.
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window functions — LAG(), LEAD() (trend and change analysis)
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - PARTITION BY 
+-- ============================================================================
