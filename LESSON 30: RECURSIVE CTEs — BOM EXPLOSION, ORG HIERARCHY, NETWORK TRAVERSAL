@@ -398,4 +398,7 @@ ORDER BY
 -- 2) Org: Return only leaf employees (those who manage nobody).
 -- 3) Network: Return the path string for the best lead-time route per node.
 -- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - ROW_NUMBER()
+-- ============================================================================
 
