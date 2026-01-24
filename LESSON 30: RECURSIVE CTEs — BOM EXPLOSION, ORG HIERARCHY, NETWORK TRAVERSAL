@@ -1,0 +1,400 @@
+-- ============================================================================
+-- LESSON 30: RECURSIVE CTEs — BOM EXPLOSION, ORG HIERARCHY, NETWORK TRAVERSAL
+-- ============================================================================
+-- Purpose:
+-- Recursive CTEs allow you to iterate over hierarchical relationships in SQL:
+-- - Parent → child structures (BOMs, org charts)
+-- - Graph-like paths (supply chain lanes, multi-tier suppliers)
+--
+-- What a recursive CTE does:
+-- 1) Anchor query: starting rows (level 0 / root)
+-- 2) Recursive query: repeatedly joins to the prior result to find next level
+-- 3) Stops when no new rows are produced (or you enforce a max depth)
+--
+-- Important:
+-- - Always include a depth/level column for control and debugging
+-- - Always protect against cycles (bad master data can create loops)
+--
+-- Dialect notes:
+-- - PostgreSQL: WITH RECURSIVE ...
+-- - SQL Server: WITH ... (recursive) (no keyword RECURSIVE)
+-- - Oracle: supports recursive subquery factoring (WITH ...) and also CONNECT BY
+--
+-- Below examples are written in PostgreSQL-style (WITH RECURSIVE).
+-- For SQL Server, remove the RECURSIVE keyword and keep the structure.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- 1) Bill of Materials
+-- bom_components:
+-- - parent_item_id
+-- - component_item_id
+-- - qty_per_parent          -- quantity of component needed per 1 parent
+-- - uom
+-- - effective_from_date
+-- - effective_to_date
+--
+-- 2) Organizational hierarchy
+-- org_employees:
+-- - employee_id
+-- - employee_name
+-- - manager_id              -- NULL for top-level
+-- - department
+--
+-- 3) Supply chain network / lanes (directed graph)
+-- transport_lanes:
+-- - from_node
+-- - to_node
+-- - lead_time_days
+-- - cost_per_unit
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: BOM EXPLOSION (multi-level) — compute required components
+-- ============================================================================
+-- Business goal:
+-- Given a finished good FG001 and a demand quantity (e.g., 120 units),
+-- explode the BOM and compute the total required quantity for every component
+-- across all levels.
+
+-- ----------------------------------------------------------------------------
+-- Example 1: BOM explosion with total required quantities
+-- ----------------------------------------------------------------------------
+
+-- Parameters (pattern):
+-- Replace these constants with bind variables in your environment.
+-- FG_ITEM = 'FG001'
+-- FG_DEMAND_QTY = 120
+
+WITH RECURSIVE bom_tree AS (
+    -- Anchor: start from the finished good as level 0
+    SELECT
+        b.parent_item_id AS root_item_id,
+        b.parent_item_id AS parent_item_id,
+        b.component_item_id,
+        1::numeric       AS parent_multiplier,      -- multiplier from root to this parent
+        b.qty_per_parent AS qty_per_parent,
+        (1::numeric * b.qty_per_parent) AS component_multiplier,  -- root → component multiplier
+        1 AS level,
+        (b.parent_item_id || '>' || b.component_item_id) AS path
+    FROM bom_components b
+    WHERE b.parent_item_id = 'FG001'
+      AND CURRENT_DATE BETWEEN b.effective_from_date
+                          AND COALESCE(b.effective_to_date, CURRENT_DATE)
+
+    UNION ALL
+
+    -- Recursive: find sub-components of the current component
+    SELECT
+        bt.root_item_id,
+        b.parent_item_id,
+        b.component_item_id,
+        bt.component_multiplier AS parent_multiplier,
+        b.qty_per_parent,
+        (bt.component_multiplier * b.qty_per_parent) AS component_multiplier,
+        bt.level + 1 AS level,
+        (bt.path || '>' || b.component_item_id) AS path
+    FROM bom_tree bt
+    JOIN bom_components b
+      ON b.parent_item_id = bt.component_item_id
+     AND CURRENT_DATE BETWEEN b.effective_from_date
+                         AND COALESCE(b.effective_to_date, CURRENT_DATE)
+
+    -- Cycle protection (basic):
+    -- prevent revisiting a node already in the path
+    WHERE bt.path NOT LIKE ('%' || '>' || b.component_item_id || '%')
+      AND bt.level < 25   -- hard safety cap
+)
+SELECT
+    bt.root_item_id AS finished_good,
+    bt.component_item_id AS component,
+    MIN(bt.level) AS first_level_found,
+    SUM(bt.component_multiplier * 120) AS total_required_qty,  -- multiply by FG demand
+    COUNT(*) AS contributing_paths
+FROM bom_tree bt
+GROUP BY
+    bt.root_item_id,
+    bt.component_item_id
+ORDER BY
+    total_required_qty DESC,
+    component;
+
+-- Notes:
+-- - component_multiplier represents how many units of that component are needed
+--   per 1 unit of FG, considering multi-levels.
+-- - Multiply by demand to get total requirement.
+-- - contributing_paths helps identify components that appear via multiple branches.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: BOM explosion — show the full exploded structure with levels
+-- ----------------------------------------------------------------------------
+
+WITH RECURSIVE bom_tree AS (
+    SELECT
+        b.parent_item_id,
+        b.component_item_id,
+        b.qty_per_parent,
+        1 AS level,
+        (b.parent_item_id || '>' || b.component_item_id) AS path
+    FROM bom_components b
+    WHERE b.parent_item_id = 'FG001'
+
+    UNION ALL
+
+    SELECT
+        bt.component_item_id AS parent_item_id,
+        b.component_item_id,
+        b.qty_per_parent,
+        bt.level + 1,
+        (bt.path || '>' || b.component_item_id) AS path
+    FROM bom_tree bt
+    JOIN bom_components b
+      ON b.parent_item_id = bt.component_item_id
+    WHERE bt.path NOT LIKE ('%' || '>' || b.component_item_id || '%')
+      AND bt.level < 25
+)
+SELECT
+    level,
+    parent_item_id,
+    component_item_id,
+    qty_per_parent,
+    path
+FROM bom_tree
+ORDER BY
+    level,
+    parent_item_id,
+    component_item_id;
+
+
+-- ============================================================================
+-- SECTION 2: ORGANIZATIONAL HIERARCHY — manager → employees roll-down
+-- ============================================================================
+-- Business goal:
+-- List all employees under a given manager (direct + indirect),
+-- including level distance from the manager.
+
+-- ----------------------------------------------------------------------------
+-- Example 3: All reports under a manager (employee hierarchy)
+-- ----------------------------------------------------------------------------
+
+WITH RECURSIVE org_tree AS (
+    -- Anchor: start at the manager
+    SELECT
+        e.employee_id,
+        e.employee_name,
+        e.manager_id,
+        e.department,
+        0 AS level,
+        CAST(e.employee_id AS varchar(2000)) AS path
+    FROM org_employees e
+    WHERE e.employee_id = 1001   -- starting manager
+
+    UNION ALL
+
+    -- Recursive: find employees whose manager is the current node
+    SELECT
+        r.employee_id,
+        r.employee_name,
+        r.manager_id,
+        r.department,
+        ot.level + 1 AS level,
+        (ot.path || '>' || r.employee_id::varchar(50)) AS path
+    FROM org_tree ot
+    JOIN org_employees r
+      ON r.manager_id = ot.employee_id
+    WHERE ot.path NOT LIKE ('%' || '>' || r.employee_id::varchar(50) || '%')
+      AND ot.level < 25
+)
+SELECT
+    level,
+    employee_id,
+    employee_name,
+    manager_id,
+    department,
+    path
+FROM org_tree
+ORDER BY
+    level,
+    employee_name;
+
+-- Notes:
+-- - level = 0 is the manager, 1 are direct reports, etc.
+-- - cycle protection handles bad HR data (someone accidentally set manager to a subordinate)
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Span of control metrics (direct vs total reports)
+-- ----------------------------------------------------------------------------
+
+WITH RECURSIVE org_tree AS (
+    SELECT
+        e.employee_id AS root_manager_id,
+        e.employee_id,
+        e.manager_id,
+        0 AS level
+    FROM org_employees e
+    WHERE e.employee_id = 1001
+
+    UNION ALL
+
+    SELECT
+        ot.root_manager_id,
+        r.employee_id,
+        r.manager_id,
+        ot.level + 1
+    FROM org_tree ot
+    JOIN org_employees r
+      ON r.manager_id = ot.employee_id
+    WHERE ot.level < 25
+),
+direct_reports AS (
+    SELECT COUNT(*) AS direct_report_count
+    FROM org_employees
+    WHERE manager_id = 1001
+),
+total_reports AS (
+    SELECT COUNT(*) - 1 AS total_report_count  -- minus the manager
+    FROM org_tree
+)
+SELECT
+    (SELECT direct_report_count FROM direct_reports) AS direct_report_count,
+    (SELECT total_report_count FROM total_reports)   AS total_report_count;
+
+
+-- ============================================================================
+-- SECTION 3: SUPPLY CHAIN NETWORKS — path search across lanes
+-- ============================================================================
+-- Business goal:
+-- Find all reachable nodes from a starting node and compute cumulative lead time
+-- and cumulative cost across each path.
+--
+-- Use-cases:
+-- - Supplier tier mapping (Tier-1 to Tier-n)
+-- - DC → store reachability checks
+-- - Lane risk propagation (upstream disruption impact)
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Enumerate paths from a node with cumulative lead time and cost
+-- ----------------------------------------------------------------------------
+
+WITH RECURSIVE network_paths AS (
+    -- Anchor: start at the origin node
+    SELECT
+        tl.from_node AS origin_node,
+        tl.to_node   AS current_node,
+        1 AS hops,
+        tl.lead_time_days AS cum_lead_time_days,
+        tl.cost_per_unit   AS cum_cost_per_unit,
+        (tl.from_node || '>' || tl.to_node) AS path
+    FROM transport_lanes tl
+    WHERE tl.from_node = 'PLANT_A'
+
+    UNION ALL
+
+    -- Recursive: extend the path by one more lane
+    SELECT
+        np.origin_node,
+        tl.to_node AS current_node,
+        np.hops + 1 AS hops,
+        np.cum_lead_time_days + tl.lead_time_days AS cum_lead_time_days,
+        np.cum_cost_per_unit + tl.cost_per_unit   AS cum_cost_per_unit,
+        (np.path || '>' || tl.to_node) AS path
+    FROM network_paths np
+    JOIN transport_lanes tl
+      ON tl.from_node = np.current_node
+    WHERE np.path NOT LIKE ('%' || '>' || tl.to_node || '%')  -- cycle protection
+      AND np.hops < 10                                        -- safety cap
+)
+SELECT
+    origin_node,
+    current_node AS reachable_node,
+    MIN(hops) AS min_hops_found,
+    MIN(cum_lead_time_days) AS best_lead_time_days,
+    MIN(cum_cost_per_unit)  AS best_cost_per_unit
+FROM network_paths
+GROUP BY
+    origin_node,
+    current_node
+ORDER BY
+    best_lead_time_days,
+    best_cost_per_unit,
+    reachable_node;
+
+-- Notes:
+-- - This returns “reachable nodes” and the best (minimum) lead time/cost found.
+-- - For true shortest path optimization across weighted edges, you typically move
+--   to graph algorithms, but this is very useful for reachability + basic path costs.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Identify all nodes within SLA lead time (e.g., <= 5 days)
+-- ----------------------------------------------------------------------------
+
+WITH RECURSIVE network_paths AS (
+    SELECT
+        tl.from_node AS origin_node,
+        tl.to_node   AS current_node,
+        tl.lead_time_days AS cum_lead_time_days,
+        (tl.from_node || '>' || tl.to_node) AS path,
+        1 AS hops
+    FROM transport_lanes tl
+    WHERE tl.from_node = 'PLANT_A'
+
+    UNION ALL
+
+    SELECT
+        np.origin_node,
+        tl.to_node,
+        np.cum_lead_time_days + tl.lead_time_days,
+        (np.path || '>' || tl.to_node),
+        np.hops + 1
+    FROM network_paths np
+    JOIN transport_lanes tl
+      ON tl.from_node = np.current_node
+    WHERE np.path NOT LIKE ('%' || '>' || tl.to_node || '%')
+      AND np.hops < 10
+)
+SELECT DISTINCT
+    origin_node,
+    current_node AS node_within_sla,
+    cum_lead_time_days
+FROM network_paths
+WHERE cum_lead_time_days <= 5
+ORDER BY
+    cum_lead_time_days,
+    node_within_sla;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Recursive CTE = Anchor + Recursive member, connected by UNION ALL
+-- 2) Track level/hops to:
+--    - debug
+--    - limit recursion
+--    - interpret business meaning
+-- 3) Always protect against cycles (path check + max depth)
+-- 4) BOM explosion: multiply quantities across levels (component multipliers)
+-- 5) Networks: recursion is great for reachability and basic cumulative metrics
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Using UNION (dedupe) instead of UNION ALL (can break recursion logic)
+-- 2) No max depth (risk runaway recursion on bad data)
+-- 3) No cycle checks (infinite loops)
+-- 4) Aggregating too early (lose path-level details)
+--
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) BOM: Add scrap factor by level (e.g., +2% per level) and recompute totals.
+-- 2) Org: Return only leaf employees (those who manage nobody).
+-- 3) Network: Return the path string for the best lead-time route per node.
+-- ============================================================================
