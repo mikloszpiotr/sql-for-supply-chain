@@ -1,0 +1,289 @@
+-- ============================================================================
+-- LESSON 31: WINDOW FUNCTIONS — ROW_NUMBER()
+-- ============================================================================
+-- Purpose:
+-- ROW_NUMBER() assigns a unique sequential number to rows within a defined
+-- window (partition), based on a specified ordering.
+--
+-- Why ROW_NUMBER is critical in analytics:
+-- - De-duplication
+-- - Latest record selection
+-- - Top-N analysis
+-- - Ranking within groups
+--
+-- In supply chain analytics, ROW_NUMBER is used constantly for:
+-- - Latest inventory snapshot per SKU
+-- - Latest price or cost per item
+-- - One active supplier per SKU
+-- - Top suppliers / customers per region
+--
+-- Key idea:
+-- ROW_NUMBER() does NOT aggregate rows.
+-- It adds a calculated column over a logical window of data.
+--
+-- Syntax:
+-- ROW_NUMBER() OVER (
+--     PARTITION BY <grouping columns>
+--     ORDER BY <sorting logic>
+-- )
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_snapshots:
+-- - warehouse_id
+-- - sku_id
+-- - snapshot_date
+-- - on_hand_qty
+--
+-- price_history:
+-- - sku_id
+-- - price_date
+-- - unit_price
+--
+-- supplier_assignments:
+-- - sku_id
+-- - supplier_id
+-- - priority_rank
+-- - valid_from_date
+-- - valid_to_date
+--
+-- sales_orders:
+-- - order_id
+-- - order_date
+-- - region_code
+-- - customer_id
+-- - sku_id
+-- - qty
+-- - revenue
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Basic ROW_NUMBER example
+-- ============================================================================
+-- Business goal:
+-- Assign a sequence number within each SKU by snapshot date.
+
+SELECT
+    warehouse_id,
+    sku_id,
+    snapshot_date,
+    on_hand_qty,
+
+    ROW_NUMBER() OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY snapshot_date
+    ) AS row_num
+FROM inventory_snapshots
+ORDER BY
+    warehouse_id,
+    sku_id,
+    snapshot_date;
+
+-- Notes:
+-- - Row numbers restart for each (warehouse_id, sku_id)
+-- - Ordering defines which row gets 1, 2, 3, ...
+
+
+-- ============================================================================
+-- SECTION 2: Get latest record per group (most common use-case)
+-- ============================================================================
+-- Business goal:
+-- Select the most recent inventory snapshot per SKU per warehouse.
+
+WITH ranked_snapshots AS (
+    SELECT
+        warehouse_id,
+        sku_id,
+        snapshot_date,
+        on_hand_qty,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY warehouse_id, sku_id
+            ORDER BY snapshot_date DESC
+        ) AS rn
+    FROM inventory_snapshots
+)
+SELECT
+    warehouse_id,
+    sku_id,
+    snapshot_date,
+    on_hand_qty
+FROM ranked_snapshots
+WHERE rn = 1;
+
+-- Why this is critical:
+-- - ERP tables often store daily or hourly snapshots
+-- - Analysts almost always want “latest state”
+-- - ROW_NUMBER avoids incorrect MAX(date) joins
+
+
+-- ============================================================================
+-- SECTION 3: De-duplication using ROW_NUMBER
+-- ============================================================================
+-- Business goal:
+-- Remove duplicate records while keeping one “best” row.
+
+-- Example rule:
+-- - Keep the most recent record
+-- - Drop older duplicates
+
+WITH deduped AS (
+    SELECT
+        sku_id,
+        price_date,
+        unit_price,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY sku_id, price_date
+            ORDER BY price_date DESC
+        ) AS rn
+    FROM price_history
+)
+SELECT
+    sku_id,
+    price_date,
+    unit_price
+FROM deduped
+WHERE rn = 1;
+
+-- Notes:
+-- - PARTITION BY defines what “duplicate” means
+-- - ORDER BY defines which row survives
+
+
+-- ============================================================================
+-- SECTION 4: Top-N analysis within groups
+-- ============================================================================
+-- Business goal:
+-- Find top 3 customers by revenue per region.
+
+WITH ranked_customers AS (
+    SELECT
+        region_code,
+        customer_id,
+        SUM(revenue) AS total_revenue,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY region_code
+            ORDER BY SUM(revenue) DESC
+        ) AS rn
+    FROM sales_orders
+    GROUP BY
+        region_code,
+        customer_id
+)
+SELECT
+    region_code,
+    customer_id,
+    total_revenue
+FROM ranked_customers
+WHERE rn <= 3
+ORDER BY
+    region_code,
+    rn;
+
+-- Notes:
+-- - ROW_NUMBER forces a strict ranking (no ties)
+-- - Use RANK or DENSE_RANK if ties must be preserved
+
+
+-- ============================================================================
+-- SECTION 5: Priority selection (business rule resolution)
+-- ============================================================================
+-- Business goal:
+-- Select ONE supplier per SKU based on priority rules.
+
+-- Priority logic:
+-- 1) Active today
+-- 2) Lowest priority_rank (1 = preferred)
+-- 3) Latest valid_from_date
+
+WITH ranked_suppliers AS (
+    SELECT
+        sa.sku_id,
+        sa.supplier_id,
+        sa.priority_rank,
+        sa.valid_from_date,
+        sa.valid_to_date,
+
+        ROW_NUMBER() OVER (
+            PARTITION BY sa.sku_id
+            ORDER BY
+                sa.priority_rank ASC,
+                sa.valid_from_date DESC
+        ) AS rn
+    FROM supplier_assignments sa
+    WHERE CURRENT_DATE BETWEEN sa.valid_from_date
+                          AND COALESCE(sa.valid_to_date, CURRENT_DATE)
+)
+SELECT
+    sku_id,
+    supplier_id
+FROM ranked_suppliers
+WHERE rn = 1;
+
+-- Why this matters:
+-- - Replaces complex CASE + subqueries
+-- - Produces deterministic, auditable decisions
+-- - Very common in sourcing and planning logic
+
+
+-- ============================================================================
+-- SECTION 6: ROW_NUMBER vs RANK vs DENSE_RANK
+-- ============================================================================
+-- Example ordering by revenue:
+
+-- Revenue values:
+-- 1000
+-- 1000
+-- 800
+
+-- ROW_NUMBER:
+-- 1, 2, 3  (always unique)
+
+-- RANK:
+-- 1, 1, 3  (gap after tie)
+
+-- DENSE_RANK:
+-- 1, 1, 2  (no gap)
+
+-- Use ROW_NUMBER when:
+-- - You must select exactly ONE row
+-- - You need deterministic output
+-- - You are resolving conflicts
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) ROW_NUMBER assigns unique sequence numbers
+-- 2) PARTITION BY defines the group
+-- 3) ORDER BY defines priority
+-- 4) Use rn = 1 for “latest”, “best”, or “chosen” records
+-- 5) Always make ORDER BY deterministic when possible
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Missing ORDER BY → undefined results
+-- 2) Using MAX(date) join instead of ROW_NUMBER
+-- 3) Forgetting business priority in ORDER BY
+-- 4) Using ROW_NUMBER when ties must be preserved
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Select latest cost per SKU from a cost history table.
+-- 2) Get top 5 SKUs by shipped quantity per warehouse.
+-- 3) Select one “active price” per SKU based on priority rules.
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - RANK() and DENSE_RANK()
+-- ============================================================================
