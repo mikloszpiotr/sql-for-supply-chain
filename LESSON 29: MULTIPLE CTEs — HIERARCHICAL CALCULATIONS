@@ -1,0 +1,376 @@
+-- ============================================================================
+-- LESSON 29: MULTIPLE CTEs — HIERARCHICAL CALCULATIONS
+-- Topic: costs → margins → profitability (step-by-step financial logic)
+-- ============================================================================
+-- Purpose:
+-- Multiple CTEs let you build “layered” calculations where each step depends
+-- on the previous step, similar to an ETL pipeline:
+--   1) Clean + standardize inputs
+--   2) Compute base costs
+--   3) Compute revenue and gross margin
+--   4) Allocate overhead (optional)
+--   5) Produce profitability views (SKU, warehouse, customer, region)
+--
+-- Why this matters in supply chain:
+-- - Cost is multi-component (purchase, transport, handling, duties, scrap)
+-- - Margin logic must be auditable (finance will ask “how did you compute it?”)
+-- - Profitability needs consistent definitions across teams
+--
+-- Key rule:
+-- - Each CTE should represent ONE business layer, with business-oriented naming
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- sales_orders (order lines):
+-- - order_id
+-- - order_date
+-- - region_code
+-- - warehouse_id
+-- - sku_id
+-- - customer_id
+-- - qty_shipped
+-- - unit_sell_price
+--
+-- sku_costs (standard costs):
+-- - sku_id
+-- - unit_purchase_cost
+-- - unit_handling_cost
+-- - unit_storage_cost
+--
+-- freight_rates (per lane cost approximations):
+-- - region_code
+-- - warehouse_id
+-- - freight_cost_per_unit
+--
+-- Optional overhead allocation:
+-- overhead_rates:
+-- - region_code
+-- - overhead_pct            -- e.g., 0.05 means 5% of revenue
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Multi-CTE pipeline (SKU profitability by warehouse + region)
+-- ============================================================================
+-- Business goal:
+-- Build a profitability table for decision-making:
+-- - Revenue
+-- - Total cost (COGS + logistics + handling/storage)
+-- - Gross margin and gross margin %
+-- - Contribution after overhead (optional)
+
+WITH
+-- ----------------------------------------------------------------------------
+-- Step 1: Base sales (normalize and filter to analysis window)
+-- ----------------------------------------------------------------------------
+base_sales AS (
+    SELECT
+        so.order_date,
+        so.region_code,
+        so.warehouse_id,
+        so.sku_id,
+        so.customer_id,
+        so.qty_shipped,
+        so.unit_sell_price,
+
+        -- Revenue at line level
+        (so.qty_shipped * so.unit_sell_price) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND so.qty_shipped > 0
+),
+
+-- ----------------------------------------------------------------------------
+-- Step 2: Attach cost master data (standard unit costs)
+-- ----------------------------------------------------------------------------
+cost_enriched AS (
+    SELECT
+        bs.order_date,
+        bs.region_code,
+        bs.warehouse_id,
+        bs.sku_id,
+        bs.customer_id,
+        bs.qty_shipped,
+        bs.unit_sell_price,
+        bs.revenue,
+
+        sc.unit_purchase_cost,
+        sc.unit_handling_cost,
+        sc.unit_storage_cost
+    FROM base_sales bs
+    JOIN sku_costs sc
+      ON sc.sku_id = bs.sku_id
+),
+
+-- ----------------------------------------------------------------------------
+-- Step 3: Compute core cost components (COGS + handling + storage)
+-- ----------------------------------------------------------------------------
+cost_components AS (
+    SELECT
+        ce.region_code,
+        ce.warehouse_id,
+        ce.sku_id,
+        ce.customer_id,
+        ce.order_date,
+        ce.qty_shipped,
+        ce.revenue,
+
+        -- Cost components at line level
+        (ce.qty_shipped * ce.unit_purchase_cost) AS cogs_cost,
+        (ce.qty_shipped * ce.unit_handling_cost) AS handling_cost,
+        (ce.qty_shipped * ce.unit_storage_cost)  AS storage_cost
+    FROM cost_enriched ce
+),
+
+-- ----------------------------------------------------------------------------
+-- Step 4: Add logistics cost (freight per unit by region + warehouse)
+-- ----------------------------------------------------------------------------
+logistics_enriched AS (
+    SELECT
+        cc.region_code,
+        cc.warehouse_id,
+        cc.sku_id,
+        cc.customer_id,
+        cc.order_date,
+        cc.qty_shipped,
+        cc.revenue,
+        cc.cogs_cost,
+        cc.handling_cost,
+        cc.storage_cost,
+
+        -- Freight model (simple lane rate)
+        (cc.qty_shipped * fr.freight_cost_per_unit) AS freight_cost
+    FROM cost_components cc
+    LEFT JOIN freight_rates fr
+      ON fr.region_code = cc.region_code
+     AND fr.warehouse_id = cc.warehouse_id
+),
+
+-- ----------------------------------------------------------------------------
+-- Step 5: Margin layer (gross margin, margin %)
+-- ----------------------------------------------------------------------------
+margin_layer AS (
+    SELECT
+        le.region_code,
+        le.warehouse_id,
+        le.sku_id,
+        le.customer_id,
+        le.order_date,
+
+        le.qty_shipped,
+        le.revenue,
+
+        (le.cogs_cost + le.handling_cost + le.storage_cost + COALESCE(le.freight_cost, 0)) AS total_variable_cost,
+
+        -- Gross margin (revenue - variable costs)
+        (le.revenue - (le.cogs_cost + le.handling_cost + le.storage_cost + COALESCE(le.freight_cost, 0))) AS gross_margin,
+
+        -- Gross margin % (protect against divide by zero)
+        CASE
+            WHEN le.revenue = 0 THEN NULL
+            ELSE (le.revenue - (le.cogs_cost + le.handling_cost + le.storage_cost + COALESCE(le.freight_cost, 0))) / le.revenue
+        END AS gross_margin_pct
+    FROM logistics_enriched le
+),
+
+-- ----------------------------------------------------------------------------
+-- Step 6 (optional): Overhead allocation (regional SG&A proxy)
+-- ----------------------------------------------------------------------------
+profitability_layer AS (
+    SELECT
+        ml.region_code,
+        ml.warehouse_id,
+        ml.sku_id,
+        ml.customer_id,
+        ml.order_date,
+
+        ml.qty_shipped,
+        ml.revenue,
+        ml.total_variable_cost,
+        ml.gross_margin,
+        ml.gross_margin_pct,
+
+        -- Overhead allocation as % of revenue (common proxy)
+        (ml.revenue * COALESCE(orate.overhead_pct, 0)) AS overhead_allocated,
+
+        -- Contribution margin after overhead
+        (ml.gross_margin - (ml.revenue * COALESCE(orate.overhead_pct, 0))) AS contribution_margin
+    FROM margin_layer ml
+    LEFT JOIN overhead_rates orate
+      ON orate.region_code = ml.region_code
+)
+
+-- ----------------------------------------------------------------------------
+-- Final output: Profitability summary by (region, warehouse, sku)
+-- ----------------------------------------------------------------------------
+SELECT
+    pl.region_code,
+    pl.warehouse_id,
+    pl.sku_id,
+
+    SUM(pl.qty_shipped) AS qty_shipped,
+    SUM(pl.revenue) AS revenue,
+    SUM(pl.total_variable_cost) AS total_variable_cost,
+    SUM(pl.gross_margin) AS gross_margin,
+
+    CASE
+        WHEN SUM(pl.revenue) = 0 THEN NULL
+        ELSE SUM(pl.gross_margin) / SUM(pl.revenue)
+    END AS gross_margin_pct,
+
+    SUM(pl.overhead_allocated) AS overhead_allocated,
+    SUM(pl.contribution_margin) AS contribution_margin,
+
+    CASE
+        WHEN SUM(pl.revenue) = 0 THEN NULL
+        ELSE SUM(pl.contribution_margin) / SUM(pl.revenue)
+    END AS contribution_margin_pct
+
+FROM profitability_layer pl
+GROUP BY
+    pl.region_code,
+    pl.warehouse_id,
+    pl.sku_id
+ORDER BY
+    pl.region_code,
+    pl.warehouse_id,
+    contribution_margin DESC;
+
+
+-- ============================================================================
+-- SECTION 2: Variant — “Top loss-makers” exception report (planner-friendly)
+-- ============================================================================
+-- Business goal:
+-- Identify SKUs with negative contribution in a region/warehouse.
+
+WITH
+base_sales AS (
+    SELECT
+        so.region_code,
+        so.warehouse_id,
+        so.sku_id,
+        so.qty_shipped,
+        (so.qty_shipped * so.unit_sell_price) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND so.qty_shipped > 0
+),
+cost_join AS (
+    SELECT
+        bs.region_code,
+        bs.warehouse_id,
+        bs.sku_id,
+        bs.qty_shipped,
+        bs.revenue,
+        sc.unit_purchase_cost,
+        sc.unit_handling_cost,
+        sc.unit_storage_cost
+    FROM base_sales bs
+    JOIN sku_costs sc
+      ON sc.sku_id = bs.sku_id
+),
+variable_costs AS (
+    SELECT
+        cj.region_code,
+        cj.warehouse_id,
+        cj.sku_id,
+        cj.qty_shipped,
+        cj.revenue,
+        (cj.qty_shipped * cj.unit_purchase_cost) AS cogs_cost,
+        (cj.qty_shipped * cj.unit_handling_cost) AS handling_cost,
+        (cj.qty_shipped * cj.unit_storage_cost)  AS storage_cost
+    FROM cost_join cj
+),
+lane_costs AS (
+    SELECT
+        vc.region_code,
+        vc.warehouse_id,
+        vc.sku_id,
+        vc.qty_shipped,
+        vc.revenue,
+        (vc.cogs_cost + vc.handling_cost + vc.storage_cost) AS base_variable_cost,
+        (vc.qty_shipped * COALESCE(fr.freight_cost_per_unit, 0)) AS freight_cost
+    FROM variable_costs vc
+    LEFT JOIN freight_rates fr
+      ON fr.region_code = vc.region_code
+     AND fr.warehouse_id = vc.warehouse_id
+),
+profit_rollup AS (
+    SELECT
+        lc.region_code,
+        lc.warehouse_id,
+        lc.sku_id,
+        SUM(lc.qty_shipped) AS qty_shipped,
+        SUM(lc.revenue) AS revenue,
+        SUM(lc.base_variable_cost + lc.freight_cost) AS total_variable_cost,
+        SUM(lc.revenue - (lc.base_variable_cost + lc.freight_cost)) AS gross_margin
+    FROM lane_costs lc
+    GROUP BY
+        lc.region_code,
+        lc.warehouse_id,
+        lc.sku_id
+),
+contribution AS (
+    SELECT
+        pr.region_code,
+        pr.warehouse_id,
+        pr.sku_id,
+        pr.qty_shipped,
+        pr.revenue,
+        pr.total_variable_cost,
+        pr.gross_margin,
+
+        (pr.revenue * COALESCE(orate.overhead_pct, 0)) AS overhead_allocated,
+        (pr.gross_margin - (pr.revenue * COALESCE(orate.overhead_pct, 0))) AS contribution_margin
+    FROM profit_rollup pr
+    LEFT JOIN overhead_rates orate
+      ON orate.region_code = pr.region_code
+)
+
+SELECT
+    c.region_code,
+    c.warehouse_id,
+    c.sku_id,
+    c.qty_shipped,
+    c.revenue,
+    c.total_variable_cost,
+    c.gross_margin,
+    c.overhead_allocated,
+    c.contribution_margin
+FROM contribution c
+WHERE c.contribution_margin < 0
+ORDER BY
+    c.contribution_margin ASC;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Multiple CTEs = a readable “calculation pipeline”
+-- 2) Name each CTE by business meaning (base_sales, cost_components, margin_layer)
+-- 3) Keep each layer single-purpose (one responsibility)
+-- 4) Aggregate once you have the correct line-level economics
+-- 5) Prefer UNION ALL of layers only when you truly need stacking (not here)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Aggregating too early (loses detail needed for correct costs)
+-- 2) Mixing cost definitions in one step (hard to audit)
+-- 3) Forgetting COALESCE on optional costs (freight, overhead)
+-- 4) Margin % computed at line level then averaged (wrong); compute from sums
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Add a “returns” adjustment layer:
+--    - Join returns by sku_id and subtract returned revenue and add reverse logistics cost.
+-- 2) Add a “scrap” cost layer:
+--    - If demand_cv > 1.2, add extra scrap_pct to COGS.
+-- 3) Build the same output by customer_id instead of warehouse_id.
+-- ============================================================================
