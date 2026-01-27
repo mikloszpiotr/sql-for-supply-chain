@@ -1,0 +1,256 @@
+-- ============================================================================
+-- LESSON 38: STRING FUNCTIONS IN SQL
+-- Topic: CONCAT, SUBSTRING, UPPER / LOWER for data standardization
+-- ============================================================================
+-- Purpose:
+-- String functions are essential for:
+-- - Cleaning messy master data
+-- - Standardizing SKUs, suppliers, customers
+-- - Parsing encoded fields (SKU structure, material codes)
+-- - Building readable outputs (addresses, labels)
+--
+-- In supply chain data, text fields are often:
+-- - Manually entered
+-- - Inconsistent across systems
+-- - Encoded with business meaning
+--
+-- This lesson focuses on practical analytics use-cases.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions
+-- ----------------------------------------------------------------------------
+-- customer_master:
+-- - customer_id
+-- - customer_name
+-- - street
+-- - city
+-- - postal_code
+-- - country
+--
+-- product_master:
+-- - sku_id                  -- e.g. "ELC-TV-55-BLK"
+-- - category_code
+-- - description
+--
+-- supplier_master:
+-- - supplier_id
+-- - supplier_name
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: CONCAT — building full addresses
+-- ============================================================================
+-- Business goal:
+-- Combine multiple columns into one readable field.
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Full delivery address
+-- ----------------------------------------------------------------------------
+
+SELECT
+    customer_id,
+    customer_name,
+
+    CONCAT(
+        street, ', ',
+        postal_code, ' ',
+        city, ', ',
+        country
+    ) AS full_address
+FROM customer_master;
+
+-- Notes:
+-- - CONCAT automatically handles NULLs (NULL becomes empty)
+-- - Preferred over || for portability
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Address label for shipping documents
+-- ----------------------------------------------------------------------------
+
+SELECT
+    customer_id,
+    CONCAT(
+        customer_name, ' | ',
+        street, ', ',
+        postal_code, ' ',
+        city
+    ) AS shipping_label
+FROM customer_master;
+
+
+-- ============================================================================
+-- SECTION 2: UPPER / LOWER — text standardization
+-- ============================================================================
+-- Business goal:
+-- Normalize text before:
+-- - joins
+-- - comparisons
+-- - grouping
+--
+-- Common issue:
+-- "Poland", "POLAND", "poland" → treated as different values.
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Standardize country codes
+-- ----------------------------------------------------------------------------
+
+SELECT
+    customer_id,
+    country,
+    UPPER(country) AS country_std
+FROM customer_master;
+
+-- Recommended pattern in joins:
+
+SELECT *
+FROM customer_master c
+JOIN supplier_master s
+  ON UPPER(c.country) = UPPER(s.country);
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Case-insensitive filtering
+-- ----------------------------------------------------------------------------
+
+SELECT *
+FROM supplier_master
+WHERE LOWER(supplier_name) LIKE '%logistics%';
+
+
+-- ============================================================================
+-- SECTION 3: SUBSTRING — parsing SKU structure
+-- ============================================================================
+-- Business goal:
+-- Extract embedded meaning from SKU codes.
+
+-- Example SKU structure:
+-- "ELC-TV-55-BLK"
+--  |   |   |   |
+--  |   |   |   └─ color
+--  |   |   └──── size
+--  |   └──────── product type
+--  └──────────── category
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Extract SKU components using SUBSTRING
+-- ----------------------------------------------------------------------------
+-- PostgreSQL syntax:
+-- SUBSTRING(text FROM start FOR length)
+
+SELECT
+    sku_id,
+
+    SUBSTRING(sku_id FROM 1 FOR 3)  AS category_code,     -- ELC
+    SUBSTRING(sku_id FROM 5 FOR 2)  AS product_type,      -- TV
+    SUBSTRING(sku_id FROM 8 FOR 2)  AS size_code,         -- 55
+    SUBSTRING(sku_id FROM 11 FOR 3) AS color_code         -- BLK
+FROM product_master;
+
+-- Warning:
+-- SUBSTRING with fixed positions works ONLY if SKU format is consistent.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 6: Dynamic SKU parsing using delimiter (recommended)
+-- ----------------------------------------------------------------------------
+-- Better approach when SKU parts vary in length.
+
+-- PostgreSQL:
+-- SPLIT_PART(text, delimiter, position)
+
+SELECT
+    sku_id,
+    SPLIT_PART(sku_id, '-', 1) AS category,
+    SPLIT_PART(sku_id, '-', 2) AS product_type,
+    SPLIT_PART(sku_id, '-', 3) AS size,
+    SPLIT_PART(sku_id, '-', 4) AS color
+FROM product_master;
+
+-- SQL Server:
+-- use STRING_SPLIT (with care) or CHARINDEX logic
+
+
+-- ============================================================================
+-- SECTION 4: Cleaning and trimming text
+-- ============================================================================
+-- Common data-quality issues:
+-- - leading spaces
+-- - trailing spaces
+-- - mixed casing
+
+SELECT
+    supplier_id,
+    supplier_name,
+
+    TRIM(supplier_name) AS trimmed_name,
+    UPPER(TRIM(supplier_name)) AS standardized_name
+FROM supplier_master;
+
+
+-- ============================================================================
+-- SECTION 5: Building business-friendly labels
+-- ============================================================================
+-- Business goal:
+-- Create readable fields for dashboards and reports.
+
+SELECT
+    sku_id,
+    CONCAT(
+        sku_id, ' - ',
+        description
+    ) AS sku_label
+FROM product_master;
+
+
+-- ============================================================================
+-- SECTION 6: String logic inside CASE statements
+-- ============================================================================
+-- Example:
+-- Classify SKUs based on code pattern.
+
+SELECT
+    sku_id,
+
+    CASE
+        WHEN sku_id LIKE 'ELC-%' THEN 'ELECTRONICS'
+        WHEN sku_id LIKE 'FUR-%' THEN 'FURNITURE'
+        WHEN sku_id LIKE 'APP-%' THEN 'APPAREL'
+        ELSE 'OTHER'
+    END AS sku_family
+FROM product_master;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) CONCAT is safest for building strings
+-- 2) UPPER / LOWER ensures consistent joins and grouping
+-- 3) SUBSTRING extracts fixed-position codes
+-- 4) SPLIT_PART is better for delimiter-based SKUs
+-- 5) Always standardize text before analytics
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Joining raw text without standardization
+-- 2) Assuming SKU structure never changes
+-- 3) Using fixed SUBSTRING when format varies
+-- 4) Forgetting TRIM on user-entered fields
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Build a standardized supplier name column (UPPER + TRIM).
+-- 2) Parse SKU into category and subcategory.
+-- 3) Create a full address field for customer shipments.
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Complex Multi-Table Joins with Aggregations
+-- ============================================================================
