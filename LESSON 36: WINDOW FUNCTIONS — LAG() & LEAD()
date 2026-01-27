@@ -1,0 +1,322 @@
+-- ============================================================================
+-- LESSON 36: WINDOW FUNCTIONS — LAG() & LEAD()
+-- Topic: Comparing current vs previous month, period-over-period (PoP) changes
+-- ============================================================================
+-- Purpose:
+-- LAG() and LEAD() let you reference prior/next rows in a time-ordered series
+-- without self-joins.
+--
+-- Supply chain analytics use-cases:
+-- - Month-over-month demand change (units, revenue)
+-- - Inventory change vs last month
+-- - Supplier OTIF trend vs prior month
+-- - Forecast error change vs prior period
+--
+-- Syntax:
+-- LAG(value, 1, default)  OVER (PARTITION BY ... ORDER BY time)
+-- LEAD(value, 1, default) OVER (PARTITION BY ... ORDER BY time)
+--
+-- Notes:
+-- - Always ORDER BY the period column (month_start, week_start, date)
+-- - Use PARTITION BY to keep comparisons per SKU / warehouse / region
+-- - Prefer aggregating to the correct grain first (monthly table), then lag/lead
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- sales_orders:
+-- - order_date
+-- - region_code
+-- - warehouse_id
+-- - sku_id
+-- - qty
+-- - revenue
+--
+-- inventory_snapshot:
+-- - snapshot_date
+-- - warehouse_id
+-- - sku_id
+-- - on_hand_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Month-over-month (MoM) demand change per SKU (units)
+-- ============================================================================
+-- Business goal:
+-- For each SKU (optionally per region), compute:
+-- - current month units
+-- - previous month units
+-- - MoM absolute change
+-- - MoM % change
+
+-- ----------------------------------------------------------------------------
+-- Example 1: MoM units per (region, sku)
+-- ----------------------------------------------------------------------------
+
+WITH monthly_sales AS (
+    SELECT
+        DATE_TRUNC('month', so.order_date) AS month_start,
+        so.region_code,
+        so.sku_id,
+        SUM(so.qty) AS units_sold,
+        SUM(so.revenue) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months'
+    GROUP BY
+        DATE_TRUNC('month', so.order_date),
+        so.region_code,
+        so.sku_id
+),
+with_prev AS (
+    SELECT
+        ms.*,
+
+        LAG(ms.units_sold, 1) OVER (
+            PARTITION BY ms.region_code, ms.sku_id
+            ORDER BY ms.month_start
+        ) AS prev_month_units,
+
+        LAG(ms.revenue, 1) OVER (
+            PARTITION BY ms.region_code, ms.sku_id
+            ORDER BY ms.month_start
+        ) AS prev_month_revenue
+    FROM monthly_sales ms
+)
+SELECT
+    month_start,
+    region_code,
+    sku_id,
+    units_sold,
+    prev_month_units,
+    (units_sold - prev_month_units) AS mom_units_change,
+
+    CASE
+        WHEN prev_month_units IS NULL OR prev_month_units = 0 THEN NULL
+        ELSE (units_sold - prev_month_units)::numeric / prev_month_units
+    END AS mom_units_change_pct,
+
+    revenue,
+    prev_month_revenue,
+    (revenue - prev_month_revenue) AS mom_revenue_change,
+
+    CASE
+        WHEN prev_month_revenue IS NULL OR prev_month_revenue = 0 THEN NULL
+        ELSE (revenue - prev_month_revenue)::numeric / prev_month_revenue
+    END AS mom_revenue_change_pct
+FROM with_prev
+ORDER BY
+    region_code,
+    sku_id,
+    month_start;
+
+-- Notes:
+-- - This assumes month_start exists for each month where sales occurred.
+-- - If a month has no rows (no sales), you’ll “skip” months. If you need
+--   continuous months, join to a calendar table (advanced lesson).
+
+
+-- ============================================================================
+-- SECTION 2: MoM inventory change (end-of-month snapshot) per warehouse+SKU
+-- ============================================================================
+-- Business goal:
+-- Compare current month-end on-hand vs previous month-end on-hand.
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Month-end inventory snapshot + MoM delta
+-- ----------------------------------------------------------------------------
+-- Approach:
+-- 1) Identify month-end snapshot date per (warehouse, sku, month)
+-- 2) Pick that month-end record
+-- 3) LAG to compare previous month
+
+WITH month_end_dates AS (
+    SELECT
+        s.warehouse_id,
+        s.sku_id,
+        DATE_TRUNC('month', s.snapshot_date) AS month_start,
+        MAX(s.snapshot_date) AS month_end_snapshot_date
+    FROM inventory_snapshot s
+    WHERE s.snapshot_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months'
+    GROUP BY
+        s.warehouse_id,
+        s.sku_id,
+        DATE_TRUNC('month', s.snapshot_date)
+),
+month_end_inventory AS (
+    SELECT
+        med.warehouse_id,
+        med.sku_id,
+        med.month_start,
+        s.snapshot_date AS month_end_date,
+        s.on_hand_qty AS month_end_on_hand_qty
+    FROM month_end_dates med
+    JOIN inventory_snapshot s
+      ON s.warehouse_id = med.warehouse_id
+     AND s.sku_id = med.sku_id
+     AND s.snapshot_date = med.month_end_snapshot_date
+),
+with_prev AS (
+    SELECT
+        mei.*,
+        LAG(mei.month_end_on_hand_qty, 1) OVER (
+            PARTITION BY mei.warehouse_id, mei.sku_id
+            ORDER BY mei.month_start
+        ) AS prev_month_end_on_hand_qty
+    FROM month_end_inventory mei
+)
+SELECT
+    warehouse_id,
+    sku_id,
+    month_start,
+    month_end_date,
+    month_end_on_hand_qty,
+    prev_month_end_on_hand_qty,
+    (month_end_on_hand_qty - prev_month_end_on_hand_qty) AS mom_on_hand_change
+FROM with_prev
+ORDER BY
+    warehouse_id,
+    sku_id,
+    month_start;
+
+
+-- ============================================================================
+-- SECTION 3: LEAD() for forward-looking comparisons (next month vs current)
+-- ============================================================================
+-- Business goal:
+-- Useful for “look-ahead” checks, e.g. identifying upcoming demand spikes.
+
+-- ----------------------------------------------------------------------------
+-- Example 3: Compare current month units vs next month units
+-- ----------------------------------------------------------------------------
+
+WITH monthly_sales AS (
+    SELECT
+        DATE_TRUNC('month', so.order_date) AS month_start,
+        so.region_code,
+        so.sku_id,
+        SUM(so.qty) AS units_sold
+    FROM sales_orders so
+    WHERE so.order_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months'
+    GROUP BY
+        DATE_TRUNC('month', so.order_date),
+        so.region_code,
+        so.sku_id
+),
+with_next AS (
+    SELECT
+        ms.*,
+        LEAD(ms.units_sold, 1) OVER (
+            PARTITION BY ms.region_code, ms.sku_id
+            ORDER BY ms.month_start
+        ) AS next_month_units
+    FROM monthly_sales ms
+)
+SELECT
+    month_start,
+    region_code,
+    sku_id,
+    units_sold,
+    next_month_units,
+    (next_month_units - units_sold) AS next_minus_current_units
+FROM with_next
+ORDER BY
+    region_code,
+    sku_id,
+    month_start;
+
+
+-- ============================================================================
+-- SECTION 4: “Period-over-period” template (works for week/month/quarter)
+-- ============================================================================
+-- Replace month_start with week_start or quarter_start, and aggregate accordingly.
+
+-- ----------------------------------------------------------------------------
+-- Example 4: Generic PoP change pattern (per warehouse, category)
+-- ----------------------------------------------------------------------------
+
+WITH monthly_sales AS (
+    SELECT
+        DATE_TRUNC('month', so.order_date) AS month_start,
+        so.warehouse_id,
+        so.category,
+        SUM(so.qty) AS units_sold,
+        SUM(so.revenue) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months'
+    GROUP BY
+        DATE_TRUNC('month', so.order_date),
+        so.warehouse_id,
+        so.category
+),
+pop AS (
+    SELECT
+        ms.*,
+        LAG(ms.units_sold) OVER (
+            PARTITION BY ms.warehouse_id, ms.category
+            ORDER BY ms.month_start
+        ) AS prev_units_sold,
+        LAG(ms.revenue) OVER (
+            PARTITION BY ms.warehouse_id, ms.category
+            ORDER BY ms.month_start
+        ) AS prev_revenue
+    FROM monthly_sales ms
+)
+SELECT
+    month_start,
+    warehouse_id,
+    category,
+    units_sold,
+    prev_units_sold,
+    (units_sold - prev_units_sold) AS pop_units_change,
+    CASE
+        WHEN prev_units_sold IS NULL OR prev_units_sold = 0 THEN NULL
+        ELSE (units_sold - prev_units_sold)::numeric / prev_units_sold
+    END AS pop_units_change_pct,
+
+    revenue,
+    prev_revenue,
+    (revenue - prev_revenue) AS pop_revenue_change,
+    CASE
+        WHEN prev_revenue IS NULL OR prev_revenue = 0 THEN NULL
+        ELSE (revenue - prev_revenue)::numeric / prev_revenue
+    END AS pop_revenue_change_pct
+FROM pop
+ORDER BY
+    warehouse_id,
+    category,
+    month_start;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) LAG = prior period value, LEAD = next period value
+-- 2) Aggregate to the correct grain first (monthly/weekly), then apply LAG/LEAD
+-- 3) PARTITION BY defines separate time series (region+sku, warehouse+category)
+-- 4) Handle divide-by-zero in % change
+-- 5) Missing periods require a calendar table if you need continuous timelines
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Applying LAG/LEAD on raw order lines (wrong grain, huge volume)
+-- 2) Missing ORDER BY (results meaningless)
+-- 3) Not filtering date range (slow + noisy)
+-- 4) Assuming every month exists (skips happen when no sales)
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Compute WoW (week-over-week) change by SKU and warehouse.
+-- 2) Add a flag: if MoM units change > +50% then 'SPIKE'.
+-- 3) Use LEAD to flag upcoming months where next_month_units > 2x current.
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Date Functions and Calculations
+-- ============================================================================
