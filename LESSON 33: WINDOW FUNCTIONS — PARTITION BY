@@ -290,3 +290,6 @@ ORDER BY
 -- 2) Compute revenue share per category within each region.
 -- 3) Build “Top 5 SKUs per (warehouse, category)” and compare ROW_NUMBER vs RANK.
 -- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - Running Totals (SUM OVER)
+-- ============================================================================
