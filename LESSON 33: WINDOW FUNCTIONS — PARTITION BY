@@ -1,0 +1,292 @@
+-- ============================================================================
+-- LESSON 33: WINDOW FUNCTIONS — PARTITION BY
+-- Topic: Separate rankings per warehouse + category-specific calculations
+-- ============================================================================
+-- Purpose:
+-- PARTITION BY splits your data into independent groups (“mini datasets”),
+-- and the window function runs separately inside each group.
+--
+-- Why PARTITION BY is essential in supply chain analytics:
+-- - You rarely want global rankings; you want rankings per:
+--   warehouse, region, category, planner, supplier, customer, etc.
+-- - You need category-specific KPIs (share, running totals, top-N) without
+--   collapsing data via GROUP BY.
+--
+-- General syntax pattern:
+-- <window_function>() OVER (
+--     PARTITION BY <grouping columns>
+--     ORDER BY <ordering columns>
+-- )
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_snapshot:
+-- - snapshot_date
+-- - warehouse_id
+-- - sku_id
+-- - category
+-- - on_hand_qty
+-- - unit_cost
+--
+-- sales_orders:
+-- - order_date
+-- - warehouse_id
+-- - sku_id
+-- - category
+-- - qty_shipped
+-- - revenue
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Separate ranking per warehouse (Top SKUs by on-hand value)
+-- ============================================================================
+-- Business goal:
+-- For EACH warehouse, rank SKUs by inventory value (on_hand_qty * unit_cost).
+
+WITH inv_value AS (
+    SELECT
+        i.snapshot_date,
+        i.warehouse_id,
+        i.sku_id,
+        i.category,
+        i.on_hand_qty,
+        i.unit_cost,
+        (i.on_hand_qty * i.unit_cost) AS on_hand_value
+    FROM inventory_snapshot i
+    WHERE i.snapshot_date = CURRENT_DATE
+)
+SELECT
+    snapshot_date,
+    warehouse_id,
+    sku_id,
+    category,
+    on_hand_qty,
+    unit_cost,
+    on_hand_value,
+
+    RANK() OVER (
+        PARTITION BY warehouse_id
+        ORDER BY on_hand_value DESC
+    ) AS rank_in_warehouse
+FROM inv_value
+ORDER BY
+    warehouse_id,
+    rank_in_warehouse,
+    sku_id;
+
+-- Notes:
+-- - Each warehouse gets its own rank scale starting at 1
+-- - Use ROW_NUMBER() if you want exactly one “top” SKU per warehouse
+
+
+-- ============================================================================
+-- SECTION 2: Top-N SKUs per warehouse (keep ties using RANK)
+-- ============================================================================
+-- Business goal:
+-- Show “Top 10 SKUs by on-hand value” PER warehouse, preserving ties.
+
+WITH inv_value AS (
+    SELECT
+        i.warehouse_id,
+        i.sku_id,
+        (i.on_hand_qty * i.unit_cost) AS on_hand_value
+    FROM inventory_snapshot i
+    WHERE i.snapshot_date = CURRENT_DATE
+),
+ranked AS (
+    SELECT
+        iv.*,
+        RANK() OVER (
+            PARTITION BY iv.warehouse_id
+            ORDER BY iv.on_hand_value DESC
+        ) AS rnk
+    FROM inv_value iv
+)
+SELECT
+    warehouse_id,
+    sku_id,
+    on_hand_value,
+    rnk
+FROM ranked
+WHERE rnk <= 10
+ORDER BY
+    warehouse_id,
+    rnk,
+    sku_id;
+
+-- Notes:
+-- - If multiple SKUs tie at rank 10, they all appear (good for fairness)
+-- - If you need EXACTLY 10 rows per warehouse, use ROW_NUMBER() instead
+
+
+-- ============================================================================
+-- SECTION 3: Category-specific calculations per warehouse (share of category)
+-- ============================================================================
+-- Business goal:
+-- For each warehouse and category, compute each SKU’s share of category value.
+
+WITH inv_value AS (
+    SELECT
+        i.snapshot_date,
+        i.warehouse_id,
+        i.category,
+        i.sku_id,
+        (i.on_hand_qty * i.unit_cost) AS on_hand_value
+    FROM inventory_snapshot i
+    WHERE i.snapshot_date = CURRENT_DATE
+)
+SELECT
+    snapshot_date,
+    warehouse_id,
+    category,
+    sku_id,
+    on_hand_value,
+
+    -- Category total per warehouse (no GROUP BY required)
+    SUM(on_hand_value) OVER (
+        PARTITION BY warehouse_id, category
+    ) AS category_value_total,
+
+    CASE
+        WHEN SUM(on_hand_value) OVER (PARTITION BY warehouse_id, category) = 0 THEN NULL
+        ELSE on_hand_value
+             / SUM(on_hand_value) OVER (PARTITION BY warehouse_id, category)
+    END AS sku_share_of_category_value
+FROM inv_value
+ORDER BY
+    warehouse_id,
+    category,
+    sku_share_of_category_value DESC,
+    sku_id;
+
+-- Notes:
+-- - Window SUM repeats the category total on every row in that partition
+-- - Perfect for “% share” metrics in dashboards
+
+
+-- ============================================================================
+-- SECTION 4: Category ranking per warehouse (rank inside each category)
+-- ============================================================================
+-- Business goal:
+-- Rank SKUs by on-hand value separately for each (warehouse, category).
+
+WITH inv_value AS (
+    SELECT
+        i.warehouse_id,
+        i.category,
+        i.sku_id,
+        (i.on_hand_qty * i.unit_cost) AS on_hand_value
+    FROM inventory_snapshot i
+    WHERE i.snapshot_date = CURRENT_DATE
+)
+SELECT
+    warehouse_id,
+    category,
+    sku_id,
+    on_hand_value,
+
+    DENSE_RANK() OVER (
+        PARTITION BY warehouse_id, category
+        ORDER BY on_hand_value DESC
+    ) AS dense_rank_in_wh_category
+FROM inv_value
+ORDER BY
+    warehouse_id,
+    category,
+    dense_rank_in_wh_category,
+    sku_id;
+
+-- Why DENSE_RANK here:
+-- - Good for tiering within each warehouse/category (Top tier, second tier, etc.)
+
+
+-- ============================================================================
+-- SECTION 5: Category-specific running totals (mini ABC per warehouse/category)
+-- ============================================================================
+-- Business goal:
+-- For each (warehouse, category), compute cumulative value share by SKU,
+-- ordered by on-hand value descending. (ABC-style building block)
+
+WITH inv_value AS (
+    SELECT
+        i.warehouse_id,
+        i.category,
+        i.sku_id,
+        (i.on_hand_qty * i.unit_cost) AS on_hand_value
+    FROM inventory_snapshot i
+    WHERE i.snapshot_date = CURRENT_DATE
+),
+with_totals AS (
+    SELECT
+        iv.*,
+        SUM(iv.on_hand_value) OVER (
+            PARTITION BY iv.warehouse_id, iv.category
+        ) AS total_value_in_partition
+    FROM inv_value iv
+)
+SELECT
+    warehouse_id,
+    category,
+    sku_id,
+    on_hand_value,
+    total_value_in_partition,
+
+    -- Running total within each (warehouse, category)
+    SUM(on_hand_value) OVER (
+        PARTITION BY warehouse_id, category
+        ORDER BY on_hand_value DESC, sku_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS cumulative_value,
+
+    CASE
+        WHEN total_value_in_partition = 0 THEN NULL
+        ELSE
+            SUM(on_hand_value) OVER (
+                PARTITION BY warehouse_id, category
+                ORDER BY on_hand_value DESC, sku_id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) / total_value_in_partition
+    END AS cumulative_value_share
+FROM with_totals
+ORDER BY
+    warehouse_id,
+    category,
+    on_hand_value DESC,
+    sku_id;
+
+-- Notes:
+-- - PARTITION BY isolates the running total per warehouse/category
+-- - ORDER BY defines the “priority” sequence (highest value first)
+-- - ROWS frame makes the running total explicit and stable
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) PARTITION BY creates independent calculation groups
+-- 2) You can partition by multiple columns (warehouse_id, category, month, etc.)
+-- 3) Window aggregates (SUM/AVG) keep row-level detail (unlike GROUP BY)
+-- 4) Rankings should almost always partition by business context (warehouse, region)
+-- 5) Deterministic ORDER BY (add sku_id as tie-breaker) improves reproducibility
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Forgetting PARTITION BY → you get one global ranking (wrong)
+-- 2) Using GROUP BY when you still need row-level detail
+-- 3) ORDER BY missing tie-breaker → unstable ranks across runs
+-- 4) Mixing date ranges across partitions (be consistent: snapshot_date filters)
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Rank SKUs by shipped quantity per warehouse for the last 30 days.
+-- 2) Compute revenue share per category within each region.
+-- 3) Build “Top 5 SKUs per (warehouse, category)” and compare ROW_NUMBER vs RANK.
+-- ============================================================================
