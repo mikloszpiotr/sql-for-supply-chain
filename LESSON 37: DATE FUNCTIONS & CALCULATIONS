@@ -1,0 +1,286 @@
+-- ============================================================================
+-- LESSON 37: DATE FUNCTIONS & CALCULATIONS
+-- Topic: Time-based logic for analytics, reporting, and supply chain KPIs
+-- ============================================================================
+-- Purpose:
+-- Date functions are foundational for:
+-- - Time filtering (last 7 days, MTD, YTD)
+-- - Period alignment (week, month, quarter)
+-- - Lead-time calculations
+-- - SLA / OTIF evaluation
+-- - Trend and seasonality analysis
+--
+-- This lesson focuses on practical, real-life supply chain use cases,
+-- not just syntax.
+--
+-- Examples written in PostgreSQL-style SQL.
+-- (SQL Server / Oracle equivalents noted where important.)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions
+-- ----------------------------------------------------------------------------
+-- orders:
+-- - order_id
+-- - order_date
+-- - promised_date
+-- - ship_date
+-- - delivery_date
+--
+-- sales_orders:
+-- - order_date
+-- - region_code
+-- - sku_id
+-- - qty
+-- - revenue
+--
+-- inventory_snapshot:
+-- - snapshot_date
+-- - warehouse_id
+-- - sku_id
+-- - on_hand_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Current date, today logic
+-- ============================================================================
+-- Most-used functions in operational analytics.
+
+SELECT
+    CURRENT_DATE        AS today_date,
+    CURRENT_TIMESTAMP   AS current_timestamp,
+    NOW()               AS now_timestamp;
+
+-- SQL Server:
+-- GETDATE(), CAST(GETDATE() AS date)
+
+
+-- ============================================================================
+-- SECTION 2: Date arithmetic (adding / subtracting time)
+-- ============================================================================
+-- Used for rolling windows and filters.
+
+-- Last 7 days
+SELECT *
+FROM sales_orders
+WHERE order_date >= CURRENT_DATE - INTERVAL '7 days';
+
+-- Last 30 days
+SELECT *
+FROM sales_orders
+WHERE order_date >= CURRENT_DATE - INTERVAL '30 days';
+
+-- Last 12 months
+SELECT *
+FROM sales_orders
+WHERE order_date >= CURRENT_DATE - INTERVAL '12 months';
+
+-- SQL Server:
+-- DATEADD(day, -7, GETDATE())
+-- DATEADD(month, -12, GETDATE())
+
+
+-- ============================================================================
+-- SECTION 3: DATE_TRUNC — align to period start
+-- ============================================================================
+-- Critical for grouping and time-series consistency.
+
+-- Day / week / month / quarter / year
+
+SELECT
+    DATE_TRUNC('day', CURRENT_DATE)     AS day_start,
+    DATE_TRUNC('week', CURRENT_DATE)    AS week_start,
+    DATE_TRUNC('month', CURRENT_DATE)   AS month_start,
+    DATE_TRUNC('quarter', CURRENT_DATE) AS quarter_start,
+    DATE_TRUNC('year', CURRENT_DATE)    AS year_start;
+
+-- Why this matters:
+-- - Prevents broken grouping
+-- - Enables MTD / QTD / YTD logic
+-- - Required for LAG/LEAD comparisons
+
+
+-- ============================================================================
+-- SECTION 4: Month-to-date (MTD), Year-to-date (YTD)
+-- ============================================================================
+-- Very common management KPIs.
+
+-- ----------------------------------------------------------------------------
+-- MTD sales
+-- ----------------------------------------------------------------------------
+
+SELECT
+    SUM(revenue) AS mtd_revenue
+FROM sales_orders
+WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE)
+  AND order_date <= CURRENT_DATE;
+
+-- ----------------------------------------------------------------------------
+-- YTD sales
+-- ----------------------------------------------------------------------------
+
+SELECT
+    SUM(revenue) AS ytd_revenue
+FROM sales_orders
+WHERE order_date >= DATE_TRUNC('year', CURRENT_DATE)
+  AND order_date <= CURRENT_DATE;
+
+
+-- ============================================================================
+-- SECTION 5: Extracting parts of a date
+-- ============================================================================
+-- Useful for seasonality and reporting dimensions.
+
+SELECT
+    order_date,
+    EXTRACT(year  FROM order_date) AS year,
+    EXTRACT(month FROM order_date) AS month,
+    EXTRACT(week  FROM order_date) AS week,
+    EXTRACT(dow   FROM order_date) AS day_of_week
+FROM sales_orders;
+
+-- day_of_week:
+-- 0 = Sunday, 6 = Saturday (Postgres)
+
+
+-- ============================================================================
+-- SECTION 6: Date differences (lead time, SLA)
+-- ============================================================================
+-- Extremely common in supply chain.
+
+-- ----------------------------------------------------------------------------
+-- Lead time (order → delivery)
+-- ----------------------------------------------------------------------------
+
+SELECT
+    order_id,
+    order_date,
+    delivery_date,
+    (delivery_date - order_date) AS lead_time_days
+FROM orders
+WHERE delivery_date IS NOT NULL;
+
+-- SQL Server:
+-- DATEDIFF(day, order_date, delivery_date)
+
+
+-- ----------------------------------------------------------------------------
+-- Shipping delay vs promise
+-- ----------------------------------------------------------------------------
+
+SELECT
+    order_id,
+    promised_date,
+    delivery_date,
+
+    (delivery_date - promised_date) AS delay_days,
+
+    CASE
+        WHEN delivery_date <= promised_date THEN 'ON_TIME'
+        ELSE 'LATE'
+    END AS delivery_status
+FROM orders
+WHERE delivery_date IS NOT NULL;
+
+
+-- ============================================================================
+-- SECTION 7: Week-based analysis (retail & logistics)
+-- ============================================================================
+-- Weeks are heavily used in supply chain reporting.
+
+-- Weekly aggregation example:
+
+SELECT
+    DATE_TRUNC('week', order_date) AS week_start,
+    region_code,
+    SUM(qty) AS units_sold,
+    SUM(revenue) AS revenue
+FROM sales_orders
+GROUP BY
+    DATE_TRUNC('week', order_date),
+    region_code
+ORDER BY
+    week_start,
+    region_code;
+
+
+-- ============================================================================
+-- SECTION 8: Handling missing dates (important concept)
+-- ============================================================================
+-- If no orders occurred on a day, that day does not exist in fact tables.
+-- This breaks:
+-- - running totals
+-- - moving averages
+-- - trend charts
+--
+-- Solution:
+-- - Use a calendar/date dimension table.
+
+-- Example structure:
+-- calendar_date:
+-- - calendar_date
+-- - year
+-- - month
+-- - week
+-- - is_working_day
+
+
+-- ============================================================================
+-- SECTION 9: Comparing periods using dates
+-- ============================================================================
+-- Example: same month last year (YoY).
+
+SELECT
+    SUM(revenue) AS current_month_revenue
+FROM sales_orders
+WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE)
+  AND order_date <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month';
+
+SELECT
+    SUM(revenue) AS last_year_same_month_revenue
+FROM sales_orders
+WHERE order_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year')
+  AND order_date <  DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year') + INTERVAL '1 month';
+
+
+-- ============================================================================
+-- SECTION 10: Common supply chain date patterns
+-- ============================================================================
+-- 1) Rolling 13 weeks (planning horizon)
+-- 2) Last 28 days (retail KPIs)
+-- 3) Month-end snapshot logic
+-- 4) SLA countdowns
+-- 5) Aging buckets (0–7, 8–14, 15–30 days)
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Always align dates using DATE_TRUNC before grouping
+-- 2) Never compare raw timestamps directly for periods
+-- 3) Date math is business logic — treat it carefully
+-- 4) Use calendar tables for serious analytics
+-- 5) YTD / MTD logic is just date filtering + aggregation
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Using BETWEEN incorrectly with timestamps
+-- 2) Mixing date and timestamp without casting
+-- 3) Assuming weeks align across countries (ISO vs US)
+-- 4) Forgetting timezone issues in global data
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Build a YTD revenue report by region and SKU.
+-- 2) Calculate average delivery lead time per month.
+-- 3) Create an aging bucket for open orders.
+-- ============================================================================
+-- WHAT'S NEXT:
+-- String Functions in Queries
+-- ============================================================================
