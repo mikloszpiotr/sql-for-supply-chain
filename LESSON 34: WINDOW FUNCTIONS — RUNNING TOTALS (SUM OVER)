@@ -1,0 +1,302 @@
+-- ============================================================================
+-- LESSON 34: WINDOW FUNCTIONS — RUNNING TOTALS (SUM OVER)
+-- Topic: Cumulative inventory changes + Year-to-date (YTD) sales
+-- ============================================================================
+-- Purpose:
+-- SUM(...) OVER (...) computes running totals without collapsing rows.
+-- It’s the backbone for:
+-- - Inventory position over time (net movement cumulative)
+-- - YTD sales (revenue/units cumulative)
+-- - Cumulative KPIs (service, backlog, receipts)
+--
+-- Core pattern (running total):
+-- SUM(metric) OVER (
+--     PARTITION BY <group>
+--     ORDER BY <time>
+--     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+-- )
+--
+-- Notes:
+-- - Prefer ROWS frame for deterministic running totals
+-- - Always define ORDER BY for time sequence
+-- - Add tie-breaker columns when timestamps can tie (e.g., txn_id)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- inventory_transactions:
+-- - warehouse_id
+-- - sku_id
+-- - transaction_ts          -- timestamp or date
+-- - transaction_id          -- unique id (tie-breaker)
+-- - transaction_type        -- RECEIPT / ISSUE / ADJUSTMENT
+-- - quantity
+--
+-- sales_orders:
+-- - order_id
+-- - order_date
+-- - region_code
+-- - sku_id
+-- - qty
+-- - revenue
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Cumulative inventory changes (inventory position over time)
+-- ============================================================================
+-- Business goal:
+-- Convert transactions into signed movements and compute cumulative on-hand
+-- movement per (warehouse, sku) over time.
+
+-- ----------------------------------------------------------------------------
+-- Example 1: Running inventory movement by transaction sequence
+-- ----------------------------------------------------------------------------
+
+WITH txn_normalized AS (
+    SELECT
+        it.warehouse_id,
+        it.sku_id,
+        it.transaction_ts,
+        it.transaction_id,
+        it.transaction_type,
+
+        CASE
+            WHEN it.transaction_type = 'RECEIPT' THEN  it.quantity
+            WHEN it.transaction_type = 'ISSUE'   THEN -it.quantity
+            WHEN it.transaction_type = 'ADJUSTMENT' THEN it.quantity
+            ELSE 0
+        END AS signed_qty
+    FROM inventory_transactions it
+)
+SELECT
+    warehouse_id,
+    sku_id,
+    transaction_ts,
+    transaction_id,
+    transaction_type,
+    signed_qty,
+
+    -- Running total movement (inventory position delta)
+    SUM(signed_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY transaction_ts, transaction_id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS cumulative_net_movement
+FROM txn_normalized
+ORDER BY
+    warehouse_id,
+    sku_id,
+    transaction_ts,
+    transaction_id;
+
+-- Interpretation:
+-- - cumulative_net_movement shows how inventory changes over time from 0 baseline.
+-- - If you have a starting on-hand (opening balance), add it (see Example 2).
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Running on-hand including opening balance (starting snapshot)
+-- ----------------------------------------------------------------------------
+-- Data assumptions:
+-- inventory_opening_balance:
+-- - warehouse_id
+-- - sku_id
+-- - opening_date
+-- - opening_on_hand_qty
+
+WITH opening AS (
+    SELECT
+        ob.warehouse_id,
+        ob.sku_id,
+        ob.opening_date,
+        ob.opening_on_hand_qty
+    FROM inventory_opening_balance ob
+    WHERE ob.opening_date = DATE_TRUNC('month', CURRENT_DATE)  -- e.g., month start
+),
+txn_normalized AS (
+    SELECT
+        it.warehouse_id,
+        it.sku_id,
+        it.transaction_ts::date AS transaction_date,
+        it.transaction_id,
+        CASE
+            WHEN it.transaction_type = 'RECEIPT' THEN  it.quantity
+            WHEN it.transaction_type = 'ISSUE'   THEN -it.quantity
+            WHEN it.transaction_type = 'ADJUSTMENT' THEN it.quantity
+            ELSE 0
+        END AS signed_qty
+    FROM inventory_transactions it
+    WHERE it.transaction_ts::date >= DATE_TRUNC('month', CURRENT_DATE)
+),
+txn_running AS (
+    SELECT
+        tn.warehouse_id,
+        tn.sku_id,
+        tn.transaction_date,
+        tn.transaction_id,
+        tn.signed_qty,
+
+        SUM(tn.signed_qty) OVER (
+            PARTITION BY tn.warehouse_id, tn.sku_id
+            ORDER BY tn.transaction_date, tn.transaction_id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS running_movement
+    FROM txn_normalized tn
+)
+SELECT
+    tr.warehouse_id,
+    tr.sku_id,
+    tr.transaction_date,
+    tr.transaction_id,
+    tr.signed_qty,
+
+    o.opening_on_hand_qty,
+    (o.opening_on_hand_qty + tr.running_movement) AS running_on_hand_qty
+FROM txn_running tr
+JOIN opening o
+  ON o.warehouse_id = tr.warehouse_id
+ AND o.sku_id = tr.sku_id
+ORDER BY
+    tr.warehouse_id,
+    tr.sku_id,
+    tr.transaction_date,
+    tr.transaction_id;
+
+
+-- ============================================================================
+-- SECTION 2: Year-to-date (YTD) sales (revenue + units)
+-- ============================================================================
+-- Business goal:
+-- Compute YTD revenue and units per region and SKU.
+
+-- ----------------------------------------------------------------------------
+-- Example 3: YTD sales per (region, sku) by order_date
+-- ----------------------------------------------------------------------------
+
+WITH daily_sales AS (
+    SELECT
+        so.order_date,
+        so.region_code,
+        so.sku_id,
+        SUM(so.qty) AS units_sold,
+        SUM(so.revenue) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= DATE_TRUNC('year', CURRENT_DATE)
+    GROUP BY
+        so.order_date,
+        so.region_code,
+        so.sku_id
+)
+SELECT
+    order_date,
+    region_code,
+    sku_id,
+    units_sold,
+    revenue,
+
+    -- YTD units
+    SUM(units_sold) OVER (
+        PARTITION BY region_code, sku_id
+        ORDER BY order_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS ytd_units_sold,
+
+    -- YTD revenue
+    SUM(revenue) OVER (
+        PARTITION BY region_code, sku_id
+        ORDER BY order_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS ytd_revenue
+FROM daily_sales
+ORDER BY
+    region_code,
+    sku_id,
+    order_date;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 4: YTD sales per region (one line per day per region)
+-- ----------------------------------------------------------------------------
+
+WITH daily_region_sales AS (
+    SELECT
+        so.order_date,
+        so.region_code,
+        SUM(so.qty) AS units_sold,
+        SUM(so.revenue) AS revenue
+    FROM sales_orders so
+    WHERE so.order_date >= DATE_TRUNC('year', CURRENT_DATE)
+    GROUP BY
+        so.order_date,
+        so.region_code
+)
+SELECT
+    order_date,
+    region_code,
+    units_sold,
+    revenue,
+
+    SUM(revenue) OVER (
+        PARTITION BY region_code
+        ORDER BY order_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS ytd_region_revenue,
+
+    SUM(units_sold) OVER (
+        PARTITION BY region_code
+        ORDER BY order_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS ytd_region_units
+FROM daily_region_sales
+ORDER BY
+    region_code,
+    order_date;
+
+
+-- ============================================================================
+-- SECTION 3: Common supply chain patterns with running totals
+-- ============================================================================
+-- Pattern A: Cumulative demand vs receipts (backlog-like view)
+-- - Use two running totals and compare lines over time.
+-- Pattern B: Cumulative variance vs plan
+-- - Running sum of (actual - plan) to see drift.
+-- Pattern C: Inventory turns components
+-- - Rolling or cumulative COGS vs avg inventory (next lessons).
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Running totals require ORDER BY
+-- 2) PARTITION BY controls “separate running totals” (per sku, warehouse, region)
+-- 3) Use ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW for stability
+-- 4) Add tie-breakers (transaction_id) when time values can repeat
+-- 5) For YTD, filter to DATE_TRUNC('year', CURRENT_DATE) (Postgres style)
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Missing tie-breaker → unstable results with same timestamp
+-- 2) Aggregating too late (too many rows) → slow; aggregate daily first when possible
+-- 3) Using UNION instead of UNION ALL in transaction stacking → missing volume
+-- 4) Forgetting timezone/date casting when mixing timestamp vs date
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Build running on-hand per warehouse for only A-class SKUs.
+-- 2) Compute YTD revenue per customer_id with RANK() per region.
+-- 3) Add a running total for returns and compute net YTD (sales - returns).
+--
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window functions — Moving averages (AVG OVER with ROWS BETWEEN)
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - Moving Averages 
+-- ============================================================================
