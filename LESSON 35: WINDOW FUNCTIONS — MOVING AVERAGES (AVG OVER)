@@ -1,0 +1,287 @@
+-- ============================================================================
+-- LESSON 35: WINDOW FUNCTIONS — MOVING AVERAGES (AVG OVER)
+-- Topic: 7-day average demand + rolling 30-day inventory levels
+-- ============================================================================
+-- Purpose:
+-- Moving averages smooth noisy operational signals:
+-- - Demand (daily orders) → 7-day average to remove weekday noise
+-- - Inventory levels → 30-day rolling average to monitor stability/trends
+--
+-- Core patterns:
+-- 1) Rolling window by ROW COUNT (best for daily time series with no gaps):
+--    AVG(x) OVER (PARTITION BY ... ORDER BY date
+--                 ROWS BETWEEN N PRECEDING AND CURRENT ROW)
+--
+-- 2) Rolling window by TIME RANGE (better if dates are missing; dialect-specific):
+--    AVG(x) OVER (PARTITION BY ... ORDER BY date
+--                 RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW)
+--
+-- Recommendation:
+-- - If your fact table has one row per day (after pre-aggregation), use ROWS.
+-- - If dates can be missing, create a calendar table to fill gaps, or use RANGE
+--   where supported.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- demand_orders (or sales_orders):
+-- - order_date
+-- - warehouse_id
+-- - sku_id
+-- - qty
+--
+-- inventory_snapshot:
+-- - snapshot_date
+-- - warehouse_id
+-- - sku_id
+-- - on_hand_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: 7-day moving average demand (per warehouse + SKU)
+-- ============================================================================
+-- Business goal:
+-- Compute daily demand and a smoothed 7-day average for forecasting signals.
+
+-- ----------------------------------------------------------------------------
+-- Example 1: 7-day moving average using ROWS (requires daily aggregation)
+-- ----------------------------------------------------------------------------
+
+WITH daily_demand AS (
+    SELECT
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id,
+        SUM(so.qty) AS demand_qty
+    FROM sales_orders so
+    WHERE so.order_date >= CURRENT_DATE - INTERVAL '90 days'
+    GROUP BY
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id
+)
+SELECT
+    order_date,
+    warehouse_id,
+    sku_id,
+    demand_qty,
+
+    -- 7-day moving average demand (current day + prior 6 days)
+    AVG(demand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY order_date
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    ) AS demand_qty_ma_7d
+FROM daily_demand
+ORDER BY
+    warehouse_id,
+    sku_id,
+    order_date;
+
+-- Notes:
+-- - The first 6 days will average fewer than 7 rows (expected).
+-- - If you need a strict 7-day average only when full history exists,
+--   add a COUNT(*) window and filter where count >= 7.
+
+
+-- ----------------------------------------------------------------------------
+-- Example 2: Strict 7-day MA only when full 7 days exist
+-- ----------------------------------------------------------------------------
+
+WITH daily_demand AS (
+    SELECT
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id,
+        SUM(so.qty) AS demand_qty
+    FROM sales_orders so
+    WHERE so.order_date >= CURRENT_DATE - INTERVAL '90 days'
+    GROUP BY
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id
+),
+ma_calc AS (
+    SELECT
+        dd.*,
+
+        COUNT(*) OVER (
+            PARTITION BY warehouse_id, sku_id
+            ORDER BY order_date
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS window_days,
+
+        AVG(demand_qty) OVER (
+            PARTITION BY warehouse_id, sku_id
+            ORDER BY order_date
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS demand_qty_ma_7d
+    FROM daily_demand dd
+)
+SELECT
+    order_date,
+    warehouse_id,
+    sku_id,
+    demand_qty,
+    CASE WHEN window_days = 7 THEN demand_qty_ma_7d ELSE NULL END AS demand_qty_ma_7d_strict
+FROM ma_calc
+ORDER BY
+    warehouse_id,
+    sku_id,
+    order_date;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 3 (optional): 7-day average using RANGE (time-based window)
+-- ----------------------------------------------------------------------------
+-- Use when:
+-- - Some days have no orders and your table lacks rows for those days
+-- - Your SQL dialect supports RANGE with INTERVAL (PostgreSQL does)
+--
+-- Note: RANGE can behave differently with duplicate dates; daily aggregation helps.
+
+WITH daily_demand AS (
+    SELECT
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id,
+        SUM(so.qty) AS demand_qty
+    FROM sales_orders so
+    WHERE so.order_date >= CURRENT_DATE - INTERVAL '90 days'
+    GROUP BY
+        so.order_date,
+        so.warehouse_id,
+        so.sku_id
+)
+SELECT
+    order_date,
+    warehouse_id,
+    sku_id,
+    demand_qty,
+
+    AVG(demand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY order_date
+        RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+    ) AS demand_qty_ma_7d_range
+FROM daily_demand
+ORDER BY
+    warehouse_id,
+    sku_id,
+    order_date;
+
+
+-- ============================================================================
+-- SECTION 2: Rolling 30-day inventory levels (per warehouse + SKU)
+-- ============================================================================
+-- Business goal:
+-- Smooth daily inventory snapshots to see trends (not daily noise).
+
+-- ----------------------------------------------------------------------------
+-- Example 4: 30-day rolling average on-hand (daily snapshots assumed)
+-- ----------------------------------------------------------------------------
+
+WITH daily_inventory AS (
+    SELECT
+        s.snapshot_date,
+        s.warehouse_id,
+        s.sku_id,
+        s.on_hand_qty
+    FROM inventory_snapshot s
+    WHERE s.snapshot_date >= CURRENT_DATE - INTERVAL '120 days'
+)
+SELECT
+    snapshot_date,
+    warehouse_id,
+    sku_id,
+    on_hand_qty,
+
+    -- 30-day rolling average (current day + prior 29 days)
+    AVG(on_hand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY snapshot_date
+        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) AS on_hand_qty_avg_30d
+FROM daily_inventory
+ORDER BY
+    warehouse_id,
+    sku_id,
+    snapshot_date;
+
+
+-- ----------------------------------------------------------------------------
+-- Example 5: Rolling 30-day MIN/MAX (useful for safety stock monitoring)
+-- ----------------------------------------------------------------------------
+
+WITH daily_inventory AS (
+    SELECT
+        s.snapshot_date,
+        s.warehouse_id,
+        s.sku_id,
+        s.on_hand_qty
+    FROM inventory_snapshot s
+    WHERE s.snapshot_date >= CURRENT_DATE - INTERVAL '120 days'
+)
+SELECT
+    snapshot_date,
+    warehouse_id,
+    sku_id,
+    on_hand_qty,
+
+    AVG(on_hand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY snapshot_date
+        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) AS on_hand_avg_30d,
+
+    MIN(on_hand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY snapshot_date
+        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) AS on_hand_min_30d,
+
+    MAX(on_hand_qty) OVER (
+        PARTITION BY warehouse_id, sku_id
+        ORDER BY snapshot_date
+        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) AS on_hand_max_30d
+FROM daily_inventory
+ORDER BY
+    warehouse_id,
+    sku_id,
+    snapshot_date;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Compute moving averages on pre-aggregated daily data
+-- 2) ROWS-based windows count rows (best when you have a row per day)
+-- 3) RANGE-based windows count time intervals (best when dates can be missing)
+-- 4) PARTITION BY separates calculations by warehouse/SKU/category/etc.
+-- 5) Add strictness using COUNT(*) window if required by business rules
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Running AVG on raw order lines (too many rows, wrong grain)
+-- 2) Forgetting PARTITION BY → one global moving average (wrong)
+-- 3) Not handling missing dates (rows-based window becomes “last 7 rows”, not days)
+-- 4) Ordering by timestamp without tie-breaker when duplicates exist
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Build 14-day moving average demand per SKU for forecasting features.
+-- 2) Compute rolling 30-day average inventory value (on_hand_qty * unit_cost).
+-- 3) Create a stockout risk flag:
+--    - if on_hand_min_30d = 0 and demand_qty_ma_7d > 0 then "RISK".
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Window Functions - LAG and LEAD
+-- ============================================================================
