@@ -1,0 +1,317 @@
+-- ============================================================================
+-- LESSON 39: COMPLEX MULTI-TABLE JOINS + AGGREGATIONS
+-- Topic: Orders → Order Lines → Products → Suppliers
+-- Output: totals (value, units), counts (orders, lines), and supplier KPIs
+-- ============================================================================
+-- Purpose:
+-- Real supply chain analytics rarely lives in one table.
+-- Typical chain:
+--   orders (header) → order_lines (detail) → products (master) → suppliers (master)
+--
+-- This lesson shows how to:
+-- - Join multiple tables correctly (avoid row explosion)
+-- - Aggregate at the right grain (supplier / product / month)
+-- - Produce auditable KPIs: total value, units, counts, average line value, etc.
+--
+-- Key rule:
+-- 1) Join at the correct grain (lines carry qty/price)
+-- 2) Aggregate AFTER joins
+-- 3) Use COUNT(DISTINCT ...) for header-level counts (orders)
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- Data model assumptions (typical)
+-- ----------------------------------------------------------------------------
+-- orders (header):
+-- - order_id
+-- - order_date
+-- - customer_id
+-- - ship_to_country
+-- - status
+--
+-- order_lines (detail):
+-- - order_id
+-- - line_id
+-- - sku_id
+-- - qty
+-- - unit_price
+-- - discount_pct         -- 0..1 (optional)
+--
+-- products (master):
+-- - sku_id
+-- - sku_name
+-- - category
+-- - supplier_id
+--
+-- suppliers (master):
+-- - supplier_id
+-- - supplier_name
+-- - supplier_country
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Build a clean joined dataset at LINE GRAIN (recommended)
+-- ============================================================================
+-- Business goal:
+-- Create one “analysis-ready” dataset at the order line level.
+-- This is your reliable base for any aggregation.
+
+WITH line_fact AS (
+    SELECT
+        o.order_id,
+        o.order_date,
+        o.customer_id,
+        o.ship_to_country,
+        o.status,
+
+        ol.line_id,
+        ol.sku_id,
+        ol.qty,
+        ol.unit_price,
+        COALESCE(ol.discount_pct, 0) AS discount_pct,
+
+        p.sku_name,
+        p.category,
+        p.supplier_id,
+
+        s.supplier_name,
+        s.supplier_country,
+
+        -- Financials (line value)
+        (ol.qty * ol.unit_price) AS gross_line_value,
+        (ol.qty * ol.unit_price) * (1 - COALESCE(ol.discount_pct, 0)) AS net_line_value
+    FROM orders o
+    JOIN order_lines ol
+      ON ol.order_id = o.order_id
+    JOIN products p
+      ON p.sku_id = ol.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    WHERE o.order_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND o.status NOT IN ('Cancelled')   -- optional business filter
+)
+SELECT *
+FROM line_fact
+ORDER BY
+    order_date,
+    order_id,
+    line_id;
+
+
+-- ============================================================================
+-- SECTION 2: Supplier-level KPIs (total values + counts)
+-- ============================================================================
+-- Business goal:
+-- For each supplier, compute:
+-- - total net value (revenue/spend depending on context)
+-- - total units
+-- - distinct orders count
+-- - line count
+-- - avg order value, avg line value
+
+WITH line_fact AS (
+    SELECT
+        o.order_id,
+        o.order_date,
+        o.status,
+        ol.line_id,
+        ol.qty,
+        ol.unit_price,
+        COALESCE(ol.discount_pct, 0) AS discount_pct,
+        p.supplier_id,
+        s.supplier_name,
+        (ol.qty * ol.unit_price) * (1 - COALESCE(ol.discount_pct, 0)) AS net_line_value
+    FROM orders o
+    JOIN order_lines ol
+      ON ol.order_id = o.order_id
+    JOIN products p
+      ON p.sku_id = ol.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    WHERE o.order_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND o.status NOT IN ('Cancelled')
+),
+supplier_order_totals AS (
+    -- IMPORTANT: build order totals per supplier (prevents double counting)
+    SELECT
+        supplier_id,
+        supplier_name,
+        order_id,
+        SUM(net_line_value) AS order_value
+    FROM line_fact
+    GROUP BY
+        supplier_id,
+        supplier_name,
+        order_id
+)
+SELECT
+    lf.supplier_id,
+    lf.supplier_name,
+
+    -- Values and units
+    SUM(lf.net_line_value) AS total_net_value,
+    SUM(lf.qty) AS total_units,
+
+    -- Counts
+    COUNT(DISTINCT lf.order_id) AS order_count,
+    COUNT(*) AS line_count,
+
+    -- Average metrics
+    AVG(lf.net_line_value) AS avg_line_value,
+    AVG(sot.order_value)   AS avg_order_value_per_supplier
+
+FROM line_fact lf
+JOIN supplier_order_totals sot
+  ON sot.supplier_id = lf.supplier_id
+ AND sot.order_id    = lf.order_id
+
+GROUP BY
+    lf.supplier_id,
+    lf.supplier_name
+ORDER BY
+    total_net_value DESC;
+
+
+-- ============================================================================
+-- SECTION 3: Supplier x Category rollup (who drives value in each category)
+-- ============================================================================
+-- Business goal:
+-- Rank suppliers within categories by net value.
+
+WITH line_fact AS (
+    SELECT
+        o.order_id,
+        o.order_date,
+        ol.line_id,
+        ol.qty,
+        (ol.qty * ol.unit_price) * (1 - COALESCE(ol.discount_pct, 0)) AS net_line_value,
+        p.category,
+        p.supplier_id,
+        s.supplier_name
+    FROM orders o
+    JOIN order_lines ol
+      ON ol.order_id = o.order_id
+    JOIN products p
+      ON p.sku_id = ol.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    WHERE o.order_date >= CURRENT_DATE - INTERVAL '90 days'
+),
+supplier_category AS (
+    SELECT
+        category,
+        supplier_id,
+        supplier_name,
+        SUM(net_line_value) AS total_net_value,
+        SUM(qty) AS total_units,
+        COUNT(DISTINCT order_id) AS order_count,
+        COUNT(*) AS line_count
+    FROM line_fact
+    GROUP BY
+        category,
+        supplier_id,
+        supplier_name
+)
+SELECT
+    category,
+    supplier_id,
+    supplier_name,
+    total_net_value,
+    total_units,
+    order_count,
+    line_count,
+
+    RANK() OVER (
+        PARTITION BY category
+        ORDER BY total_net_value DESC
+    ) AS supplier_rank_in_category
+FROM supplier_category
+ORDER BY
+    category,
+    supplier_rank_in_category,
+    supplier_name;
+
+
+-- ============================================================================
+-- SECTION 4: Monthly supplier performance (trend-ready output)
+-- ============================================================================
+-- Business goal:
+-- Produce a monthly time series per supplier for dashboards.
+
+WITH line_fact AS (
+    SELECT
+        DATE_TRUNC('month', o.order_date) AS month_start,
+        o.order_id,
+        ol.qty,
+        (ol.qty * ol.unit_price) * (1 - COALESCE(ol.discount_pct, 0)) AS net_line_value,
+        p.supplier_id,
+        s.supplier_name
+    FROM orders o
+    JOIN order_lines ol
+      ON ol.order_id = o.order_id
+    JOIN products p
+      ON p.sku_id = ol.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    WHERE o.order_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months'
+),
+monthly_supplier AS (
+    SELECT
+        month_start,
+        supplier_id,
+        supplier_name,
+        SUM(net_line_value) AS total_net_value,
+        SUM(qty) AS total_units,
+        COUNT(DISTINCT order_id) AS order_count,
+        COUNT(*) AS line_count
+    FROM line_fact
+    GROUP BY
+        month_start,
+        supplier_id,
+        supplier_name
+)
+SELECT
+    month_start,
+    supplier_id,
+    supplier_name,
+    total_net_value,
+    total_units,
+    order_count,
+    line_count
+FROM monthly_supplier
+ORDER BY
+    supplier_name,
+    month_start;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Facts live at line grain (qty, unit_price) → aggregate later
+-- 2) COUNT(DISTINCT order_id) for header counts, COUNT(*) for line counts
+-- 3) Avoid row explosion by joining only necessary tables/keys
+-- 4) When averaging “order value”, pre-aggregate per order first
+-- 5) Use CTEs to keep joins auditable and readable
+
+
+-- ============================================================================
+-- COMMON MISTAKES TO AVOID
+-- ============================================================================
+-- 1) Joining to 1-to-many dimensions without realizing it (duplicates totals)
+-- 2) Using SUM on header values after joining to lines (double counting)
+-- 3) AVG(net_line_value) interpreted as avg order value (wrong grain)
+-- 4) Missing business filters (cancelled orders, returns, test customers)
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Add a filter for a specific region/country and re-run supplier KPIs.
+-- 2) Build “Top 5 suppliers per month” using RANK() and PARTITION BY month_start.
+-- 3) Add returns table and compute net value = sales - returns.
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Combining JOINs, Subqueries, and CTEs
+-- ============================================================================
