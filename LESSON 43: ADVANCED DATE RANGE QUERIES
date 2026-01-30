@@ -1,0 +1,343 @@
+-- ============================================================================
+-- LESSON 43: ADVANCED DATE RANGE QUERIES
+-- Topic: Rolling 12-month windows, fiscal year logic, seasonality analysis
+-- Output: trend-ready time series + YoY + seasonality indices
+-- SQL style: Postgres-ish (adaptable)
+-- ============================================================================
+-- Core date patterns:
+-- 1) Rolling 12M: filter [asof_date - 12 months, asof_date]
+-- 2) Rolling 12M by month buckets: last 12 complete months (avoid partial month bias)
+-- 3) Fiscal year: FY start month (e.g., April=4, July=7) -> FY + fiscal month
+-- 4) Seasonality: average by month-of-year, compute index vs overall avg
+-- ============================================================================
+
+
+-- ============================================================================
+-- SECTION 1: Rolling 12-month window (DAILY granularity)
+-- ============================================================================
+-- Business goal:
+-- Pull last 12 months of PO lines for analysis as-of today.
+
+WITH params AS (
+    SELECT
+        CURRENT_DATE AS asof_date,
+        (CURRENT_DATE - INTERVAL '12 months') AS start_date
+)
+SELECT
+    ph.po_date,
+    p.supplier_id,
+    s.supplier_name,
+    p.category,
+    SUM(pl.ordered_qty * pl.unit_cost) AS spend
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+JOIN suppliers s ON s.supplier_id = p.supplier_id
+WHERE ph.po_date >= (SELECT start_date FROM params)
+  AND ph.po_date <  (SELECT asof_date  FROM params) + INTERVAL '1 day'
+  AND ph.status NOT IN ('Cancelled', 'Draft')
+GROUP BY ph.po_date, p.supplier_id, s.supplier_name, p.category
+ORDER BY ph.po_date, s.supplier_name, p.category;
+
+
+-- ============================================================================
+-- SECTION 2: Rolling 12 COMPLETE months (MONTH buckets, avoids partial months)
+-- ============================================================================
+-- Business goal:
+-- Build monthly spend series for the last 12 complete calendar months.
+-- Example: if today is Jan 30, include Jan..Dec of previous year? (complete months)
+-- Logic:
+--   end_month_exclusive = first day of current month
+--   start_month = end_month_exclusive - 12 months
+
+WITH params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) AS end_month_exclusive,
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month
+)
+SELECT
+    DATE_TRUNC('month', ph.po_date)::date AS month_start,
+    p.supplier_id,
+    s.supplier_name,
+    SUM(pl.ordered_qty * pl.unit_cost) AS total_spend
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+JOIN suppliers s ON s.supplier_id = p.supplier_id
+WHERE ph.po_date >= (SELECT start_month FROM params)
+  AND ph.po_date <  (SELECT end_month_exclusive FROM params)
+  AND ph.status NOT IN ('Cancelled', 'Draft')
+GROUP BY month_start, p.supplier_id, s.supplier_name
+ORDER BY month_start, total_spend DESC;
+
+
+-- ============================================================================
+-- SECTION 3: Rolling 12M KPIs per supplier (current 12M vs previous 12M)
+-- ============================================================================
+-- Business goal:
+-- For each supplier:
+--   - Spend last 12 complete months
+--   - Spend previous 12 months
+--   - Growth %
+
+WITH params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) AS this_month_start,
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS curr_12m_start,
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '24 months' AS prev_12m_start
+),
+base AS (
+    SELECT
+        p.supplier_id,
+        s.supplier_name,
+        ph.po_date,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    WHERE ph.po_date >= (SELECT prev_12m_start FROM params)
+      AND ph.po_date <  (SELECT this_month_start FROM params)   -- exclude current partial month
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+supplier_12m AS (
+    SELECT
+        supplier_id,
+        supplier_name,
+        SUM(CASE
+                WHEN po_date >= (SELECT curr_12m_start FROM params)
+                 AND po_date <  (SELECT this_month_start FROM params)
+                THEN line_spend ELSE 0 END
+        ) AS spend_curr_12m,
+
+        SUM(CASE
+                WHEN po_date >= (SELECT prev_12m_start FROM params)
+                 AND po_date <  (SELECT curr_12m_start FROM params)
+                THEN line_spend ELSE 0 END
+        ) AS spend_prev_12m
+    FROM base
+    GROUP BY supplier_id, supplier_name
+)
+SELECT
+    supplier_id,
+    supplier_name,
+    spend_curr_12m,
+    spend_prev_12m,
+    CASE
+        WHEN spend_prev_12m = 0 THEN NULL
+        ELSE (spend_curr_12m - spend_prev_12m) / spend_prev_12m
+    END AS spend_growth_pct
+FROM supplier_12m
+ORDER BY spend_curr_12m DESC;
+
+
+-- ============================================================================
+-- SECTION 4: Fiscal year calculations (FY start month configurable)
+-- ============================================================================
+-- Business goal:
+-- Create fiscal attributes:
+--   - fiscal_year (FY2025, FY2026, ...)
+--   - fiscal_month (1..12)
+-- Example: FY starts in April (4). Adjust fy_start_month as needed.
+
+WITH params AS (
+    SELECT 4::int AS fy_start_month  -- April = 4 (change to 7 for July, 10 for Oct, etc.)
+),
+dated AS (
+    SELECT
+        ph.po_date::date AS d,
+        p.supplier_id,
+        s.supplier_name,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+        (SELECT fy_start_month FROM params) AS fy_start_month
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    WHERE ph.status NOT IN ('Cancelled', 'Draft')
+)
+
+SELECT
+    d,
+    supplier_id,
+    supplier_name,
+    line_spend,
+
+    -- Fiscal year: if month >= fy_start_month -> same calendar year, else previous year
+    CASE
+        WHEN EXTRACT(MONTH FROM d)::int >= fy_start_month
+            THEN EXTRACT(YEAR FROM d)::int
+        ELSE (EXTRACT(YEAR FROM d)::int - 1)
+    END AS fiscal_year,
+
+    -- Fiscal month: maps fy_start_month -> 1, ..., 12
+    ((EXTRACT(MONTH FROM d)::int - fy_start_month + 12) % 12) + 1 AS fiscal_month
+
+FROM dated
+ORDER BY d, supplier_name;
+
+
+-- ============================================================================
+-- SECTION 5: Fiscal Year-to-Date (FYTD) spend per supplier
+-- ============================================================================
+-- Business goal:
+-- Compute FYTD spend (from fiscal year start up to today).
+
+WITH params AS (
+    SELECT
+        CURRENT_DATE::date AS asof_date,
+        4::int AS fy_start_month
+),
+fy_bounds AS (
+    SELECT
+        asof_date,
+        fy_start_month,
+
+        -- Determine fiscal year start date for the current FY
+        CASE
+            WHEN EXTRACT(MONTH FROM asof_date)::int >= fy_start_month
+                THEN make_date(EXTRACT(YEAR FROM asof_date)::int, fy_start_month, 1)
+            ELSE make_date(EXTRACT(YEAR FROM asof_date)::int - 1, fy_start_month, 1)
+        END AS fy_start_date
+    FROM params
+)
+SELECT
+    p.supplier_id,
+    s.supplier_name,
+    SUM(pl.ordered_qty * pl.unit_cost) AS spend_fytd
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+JOIN suppliers s ON s.supplier_id = p.supplier_id
+WHERE ph.po_date::date >= (SELECT fy_start_date FROM fy_bounds)
+  AND ph.po_date::date <= (SELECT asof_date    FROM fy_bounds)
+  AND ph.status NOT IN ('Cancelled', 'Draft')
+GROUP BY p.supplier_id, s.supplier_name
+ORDER BY spend_fytd DESC;
+
+
+-- ============================================================================
+-- SECTION 6: Seasonality analysis (Month-of-year index for spend)
+-- ============================================================================
+-- Business goal:
+-- For each category (or supplier), compute monthly seasonality index:
+--   index = avg(spend in that month-of-year) / overall_avg_monthly_spend
+-- Interpretation:
+--   index > 1 => above-average month
+--   index < 1 => below-average month
+--
+-- Uses:
+--   - demand planning, capacity planning, procurement wave planning
+
+WITH params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '36 months' AS start_month, -- 3 years history
+        DATE_TRUNC('month', CURRENT_DATE) AS end_month_exclusive
+),
+
+monthly_spend AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date)::date AS month_start,
+        p.category,
+        SUM(pl.ordered_qty * pl.unit_cost) AS spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    WHERE ph.po_date >= (SELECT start_month FROM params)
+      AND ph.po_date <  (SELECT end_month_exclusive FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+    GROUP BY month_start, p.category
+),
+
+by_moy AS (
+    -- Average spend per month-of-year (across years)
+    SELECT
+        category,
+        EXTRACT(MONTH FROM month_start)::int AS month_of_year,
+        COUNT(*) AS months_observed,
+        AVG(spend) AS avg_spend_in_moy
+    FROM monthly_spend
+    GROUP BY category, month_of_year
+),
+
+overall AS (
+    -- Overall average monthly spend per category across all months in window
+    SELECT
+        category,
+        AVG(spend) AS overall_avg_monthly_spend
+    FROM monthly_spend
+    GROUP BY category
+)
+
+SELECT
+    b.category,
+    b.month_of_year,
+    b.months_observed,
+    b.avg_spend_in_moy,
+    o.overall_avg_monthly_spend,
+    (b.avg_spend_in_moy / NULLIF(o.overall_avg_monthly_spend, 0)) AS seasonality_index
+FROM by_moy b
+JOIN overall o
+  ON o.category = b.category
+ORDER BY b.category, b.month_of_year;
+
+
+-- ============================================================================
+-- SECTION 7: Seasonality with YoY comparison (same month last year)
+-- ============================================================================
+-- Business goal:
+-- Create a dashboard-ready table:
+--   month_start, category, spend, spend_last_year_same_month, yoy_growth
+
+WITH params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '24 months' AS start_month,
+        DATE_TRUNC('month', CURRENT_DATE) AS end_month_exclusive
+),
+
+monthly_spend AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date)::date AS month_start,
+        p.category,
+        SUM(pl.ordered_qty * pl.unit_cost) AS spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    WHERE ph.po_date >= (SELECT start_month FROM params)
+      AND ph.po_date <  (SELECT end_month_exclusive FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+    GROUP BY month_start, p.category
+)
+
+SELECT
+    ms.month_start,
+    ms.category,
+    ms.spend,
+
+    ms_ly.spend AS spend_last_year_same_month,
+
+    CASE
+        WHEN ms_ly.spend IS NULL OR ms_ly.spend = 0 THEN NULL
+        ELSE (ms.spend - ms_ly.spend) / ms_ly.spend
+    END AS yoy_growth_pct
+
+FROM monthly_spend ms
+LEFT JOIN monthly_spend ms_ly
+  ON ms_ly.category = ms.category
+ AND ms_ly.month_start = (ms.month_start - INTERVAL '1 year')
+
+ORDER BY ms.category, ms.month_start;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) Decide: “rolling 12M” vs “last 12 complete months” (partial month bias).
+-- 2) Always anchor windows with DATE_TRUNC('month', CURRENT_DATE) for month series.
+-- 3) Fiscal year logic = shift month numbering + adjust fiscal_year boundary.
+-- 4) Seasonality needs enough history (>= 2–3 years) and stable monthly buckets.
+-- 5) For YoY: self-join on month_start - interval '1 year' (simple and robust).
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Performance Considerations in Queries 
+-- ============================================================================
