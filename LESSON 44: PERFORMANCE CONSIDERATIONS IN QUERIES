@@ -1,0 +1,348 @@
+-- ============================================================================
+-- LESSON 44: PERFORMANCE CONSIDERATIONS IN QUERIES (PRACTICAL SQL TUNING)
+-- Topic: Execution order, avoid unnecessary work, efficient filtering & joins
+-- Output: Same business KPIs, written in “planner-friendly” ways
+-- SQL style: Postgres-ish (adaptable)
+-- ============================================================================
+-- Performance mindset:
+-- - Reduce rows early (filters, date ranges, status)
+-- - Reduce columns early (select only what you need)
+-- - Avoid exploding joins (pre-aggregate 1-to-many tables before joining)
+-- - Avoid repeated calculations (compute once, reuse)
+-- - Make predicates sargable (index-usable): avoid wrapping indexed columns in functions
+-- - Use EXISTS for semi-joins (“has at least one …”) instead of JOIN + DISTINCT
+-- - Aggregate after filtering; avoid unnecessary ORDER BY in CTEs
+-- ============================================================================
+
+
+-- ============================================================================
+-- 0) (DBA NOTE) Indexes that typically matter for these supply chain queries
+-- ============================================================================
+-- Postgres examples (adapt to your DB):
+-- CREATE INDEX ix_po_headers_po_date_status ON po_headers (po_date, status);
+-- CREATE INDEX ix_po_lines_po_id ON po_lines (po_id);
+-- CREATE INDEX ix_po_lines_sku_id ON po_lines (sku_id);
+-- CREATE INDEX ix_products_sku_id ON products (sku_id);
+-- CREATE INDEX ix_products_supplier_id ON products (supplier_id);
+-- CREATE INDEX ix_receipts_po_line ON receipts (po_id, line_id, receipt_date);
+-- CREATE INDEX ix_returns_po_line ON returns (po_id, line_id, return_date);
+-- ============================================================================
+
+
+-- ============================================================================
+-- 1) Query execution: use EXPLAIN / EXPLAIN ANALYZE (Postgres)
+-- ============================================================================
+-- Business goal:
+-- See the plan, then measure real timing.
+-- NOTE: Run these manually in your SQL client.
+
+-- EXPLAIN
+-- SELECT ...
+--
+-- EXPLAIN (ANALYZE, BUFFERS)
+-- SELECT ...
+
+
+-- ============================================================================
+-- 2) Sargable filtering: BAD vs GOOD (date filters)
+-- ============================================================================
+-- Problem:
+-- Wrapping an indexed column in a function often prevents index usage.
+
+-- ❌ BAD (may block index on po_date)
+SELECT COUNT(*)
+FROM po_headers
+WHERE DATE_TRUNC('month', po_date) = DATE_TRUNC('month', CURRENT_DATE);
+
+-- ✅ GOOD (range predicate; index-friendly)
+SELECT COUNT(*)
+FROM po_headers
+WHERE po_date >= DATE_TRUNC('month', CURRENT_DATE)
+  AND po_date <  DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month';
+
+
+-- ============================================================================
+-- 3) Reduce columns early (avoid wide “SELECT *” in big joins)
+-- ============================================================================
+-- Business goal:
+-- Supplier monthly spend. Only select keys + measures used downstream.
+
+WITH params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month,
+        DATE_TRUNC('month', CURRENT_DATE) AS end_month
+),
+filtered_headers AS (
+    SELECT po_id, po_date
+    FROM po_headers
+    WHERE po_date >= (SELECT start_month FROM params)
+      AND po_date <  (SELECT end_month   FROM params)
+      AND status NOT IN ('Cancelled', 'Draft')
+)
+SELECT
+    DATE_TRUNC('month', fh.po_date)::date AS month_start,
+    p.supplier_id,
+    SUM(pl.ordered_qty * pl.unit_cost) AS total_spend
+FROM filtered_headers fh
+JOIN po_lines pl ON pl.po_id = fh.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+GROUP BY month_start, p.supplier_id
+ORDER BY month_start, total_spend DESC;
+
+
+-- ============================================================================
+-- 4) Avoid row explosion: pre-aggregate 1-to-many before joining
+-- ============================================================================
+-- Scenario:
+-- receipts has multiple rows per PO line. Joining raw receipts to lines multiplies rows.
+-- Fix:
+-- Aggregate receipts per (po_id, line_id) then join once.
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+
+filtered_headers AS (
+    SELECT po_id, po_date, promised_date
+    FROM po_headers
+    WHERE po_date >= (SELECT start_date FROM params)
+      AND status NOT IN ('Cancelled', 'Draft')
+),
+
+receipts_agg AS (
+    SELECT
+        po_id,
+        line_id,
+        MIN(receipt_date) AS first_receipt_date,
+        SUM(received_qty) AS received_qty
+    FROM receipts
+    GROUP BY po_id, line_id
+)
+
+SELECT
+    p.supplier_id,
+    COUNT(*) AS line_count,
+    AVG(
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= fh.promised_date
+             AND COALESCE(ra.received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END::numeric
+    ) AS otif_rate
+FROM filtered_headers fh
+JOIN po_lines pl ON pl.po_id = fh.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+LEFT JOIN receipts_agg ra
+  ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+GROUP BY p.supplier_id
+ORDER BY otif_rate ASC;
+
+
+-- ============================================================================
+-- 5) Avoid repeated calculations: compute once, reuse (line_spend)
+-- ============================================================================
+-- BAD: calculate (ordered_qty * unit_cost) repeatedly inside SUM/CASE/etc.
+-- GOOD: compute as a derived column once in a CTE.
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+base_lines AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.status,
+        p.supplier_id,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+        pl.ordered_qty
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+)
+SELECT
+    supplier_id,
+    SUM(line_spend) AS total_spend,
+    SUM(ordered_qty) AS total_qty
+FROM base_lines
+GROUP BY supplier_id
+ORDER BY total_spend DESC;
+
+
+-- ============================================================================
+-- 6) Efficient “has at least one …” filtering: EXISTS vs JOIN + DISTINCT
+-- ============================================================================
+-- Business goal:
+-- Find POs that have at least one late receipt line.
+--
+-- ❌ Often slower / heavier:
+-- JOIN receipts, then DISTINCT POs.
+
+SELECT DISTINCT ph.po_id
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN receipts r  ON r.po_id = pl.po_id AND r.line_id = pl.line_id
+WHERE ph.status = 'Approved'
+  AND r.receipt_date > ph.promised_date;
+
+-- ✅ Preferred semi-join:
+SELECT ph.po_id
+FROM po_headers ph
+WHERE ph.status = 'Approved'
+  AND EXISTS (
+      SELECT 1
+      FROM po_lines pl
+      JOIN receipts r
+        ON r.po_id = pl.po_id AND r.line_id = pl.line_id
+      WHERE pl.po_id = ph.po_id
+        AND r.receipt_date > ph.promised_date
+  );
+
+
+-- ============================================================================
+-- 7) Push filters into join inputs (predicate pushdown)
+-- ============================================================================
+-- Business goal:
+-- Only look at last 90 days receipts, not full history.
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '90 days' AS start_date
+),
+recent_receipts AS (
+    SELECT po_id, line_id, receipt_date, received_qty
+    FROM receipts
+    WHERE receipt_date >= (SELECT start_date FROM params)
+),
+receipts_agg AS (
+    SELECT
+        po_id,
+        line_id,
+        MIN(receipt_date) AS first_receipt_date,
+        SUM(received_qty) AS received_qty
+    FROM recent_receipts
+    GROUP BY po_id, line_id
+)
+SELECT
+    p.supplier_id,
+    COUNT(*) AS lines_with_recent_receipts
+FROM receipts_agg ra
+JOIN po_lines pl ON pl.po_id = ra.po_id AND pl.line_id = ra.line_id
+JOIN products p  ON p.sku_id = pl.sku_id
+GROUP BY p.supplier_id;
+
+
+-- ============================================================================
+-- 8) Avoid ORDER BY in CTEs unless you LIMIT (planner can’t use it, wastes work)
+-- ============================================================================
+-- ❌ BAD: ORDER BY inside CTE without LIMIT (usually pointless overhead)
+WITH x AS (
+    SELECT *
+    FROM po_lines
+    ORDER BY po_id
+)
+SELECT COUNT(*) FROM x;
+
+-- ✅ GOOD: Only ORDER BY in the final SELECT, or with LIMIT for Top-N
+WITH x AS (
+    SELECT po_id, sku_id, ordered_qty
+    FROM po_lines
+)
+SELECT *
+FROM x
+ORDER BY po_id;
+
+-- ✅ Top-N pattern (ORDER BY is meaningful with LIMIT)
+SELECT
+    p.supplier_id,
+    SUM(pl.ordered_qty * pl.unit_cost) AS spend
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+WHERE ph.po_date >= CURRENT_DATE - INTERVAL '90 days'
+  AND ph.status NOT IN ('Cancelled', 'Draft')
+GROUP BY p.supplier_id
+ORDER BY spend DESC
+LIMIT 10;
+
+
+-- ============================================================================
+-- 9) Pre-filter dimension tables when possible (small but common win)
+-- ============================================================================
+-- Business goal:
+-- Only analyze Tier-1 suppliers and selected countries.
+
+WITH
+tier1_suppliers AS (
+    SELECT supplier_id
+    FROM suppliers
+    WHERE supplier_tier = 'Tier 1'
+      AND supplier_country IN ('DE', 'PL', 'CZ')
+)
+SELECT
+    p.supplier_id,
+    SUM(pl.ordered_qty * pl.unit_cost) AS spend
+FROM po_headers ph
+JOIN po_lines pl ON pl.po_id = ph.po_id
+JOIN products p  ON p.sku_id = pl.sku_id
+WHERE ph.po_date >= CURRENT_DATE - INTERVAL '180 days'
+  AND ph.status NOT IN ('Cancelled', 'Draft')
+  AND p.supplier_id IN (SELECT supplier_id FROM tier1_suppliers)  -- semi-filter
+GROUP BY p.supplier_id
+ORDER BY spend DESC;
+
+
+-- ============================================================================
+-- 10) Use appropriate aggregation grain (avoids huge intermediate result sets)
+-- ============================================================================
+-- Anti-pattern:
+-- Join everything at line grain, then aggregate to supplier-month.
+-- Better:
+-- Aggregate early to supplier-month where possible (especially for dashboards).
+
+WITH
+params AS (
+    SELECT
+        DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month,
+        DATE_TRUNC('month', CURRENT_DATE) AS end_month
+),
+filtered AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date)::date AS month_start,
+        p.supplier_id,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    WHERE ph.po_date >= (SELECT start_month FROM params)
+      AND ph.po_date <  (SELECT end_month   FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+supplier_month AS (
+    SELECT
+        month_start,
+        supplier_id,
+        SUM(line_spend) AS total_spend
+    FROM filtered
+    GROUP BY month_start, supplier_id
+)
+SELECT *
+FROM supplier_month
+ORDER BY month_start, total_spend DESC;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER (PERFORMANCE)
+-- ============================================================================
+-- 1) Filter early using sargable predicates (date ranges, status).
+-- 2) Select only columns you need; avoid SELECT * in big joins.
+-- 3) Pre-aggregate 1-to-many tables (receipts/returns) before joining to facts.
+-- 4) Compute expensive expressions once (line_spend, flags) and reuse.
+-- 5) Prefer EXISTS for “has at least one …” patterns.
+-- 6) Don’t ORDER BY inside CTEs unless paired with LIMIT.
+-- 7) Validate with EXPLAIN (ANALYZE): measure, don’t guess.
+-- ============================================================================
