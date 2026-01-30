@@ -1,0 +1,296 @@
+-- ============================================================================
+-- LESSON 42: NESTED AGGREGATIONS (AVG OF SUMS, MAX OF AVGS, etc.)
+-- Topic: Two-step aggregation patterns for real supply chain KPIs
+-- Output: auditable, correct “aggregation of aggregations”
+-- SQL style: Postgres-ish (adaptable)
+-- ============================================================================
+-- Why nested aggregations matter:
+-- Many KPIs are NOT “AVG(line_value)” or “MAX(line_value)”.
+-- They are things like:
+--   - Average PO value per supplier  -> AVG( SUM(line_spend) grouped by PO )
+--   - Maximum monthly OTIF per supplier -> MAX( AVG(is_otif) grouped by month )
+--   - Average weekly demand per SKU -> AVG( SUM(qty) grouped by week )
+-- You must aggregate at the right intermediate grain first, then aggregate again.
+-- ============================================================================
+
+
+-- ============================================================================
+-- PATTERN A: AVG OF SUMS (Average PO Value per Supplier)
+-- ============================================================================
+-- Business goal:
+-- For each supplier, compute average PO value:
+--   1) Sum lines to PO total (per supplier, per PO)
+--   2) Average those PO totals (per supplier)
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+
+line_spend AS (
+    SELECT
+        p.supplier_id,
+        s.supplier_name,
+        ph.po_id,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+po_totals AS (
+    -- Step 1: SUM at PO grain (per supplier, per PO)
+    SELECT
+        supplier_id,
+        supplier_name,
+        po_id,
+        SUM(line_spend) AS po_value
+    FROM line_spend
+    GROUP BY supplier_id, supplier_name, po_id
+)
+
+-- Step 2: AVG of those SUMs (po_value)
+SELECT
+    supplier_id,
+    supplier_name,
+    COUNT(*) AS po_count,
+    AVG(po_value) AS avg_po_value,
+    MIN(po_value) AS min_po_value,
+    MAX(po_value) AS max_po_value
+FROM po_totals
+GROUP BY supplier_id, supplier_name
+ORDER BY avg_po_value DESC;
+
+
+-- ============================================================================
+-- PATTERN B: MAX OF AVGS (Maximum Monthly OTIF Rate per Supplier)
+-- ============================================================================
+-- Business goal:
+-- For each supplier:
+--   - compute monthly OTIF rate (AVG of line-level flags by month)
+--   - then take the MAX of those monthly averages (best month)
+--
+-- Notes:
+-- - If you want “worst month” use MIN(monthly_otif_rate)
+-- - Keep a minimum sample size per month to avoid noise
+
+WITH
+params AS (
+    SELECT DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month
+),
+
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+line_fact AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date) AS month_start,
+        p.supplier_id,
+        s.supplier_name,
+        ph.promised_date,
+        pl.po_id,
+        pl.line_id,
+        pl.ordered_qty,
+        COALESCE(ra.received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    WHERE DATE_TRUNC('month', ph.po_date) >= (SELECT start_month FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+monthly_otif AS (
+    -- Step 1: AVG at monthly grain
+    SELECT
+        month_start,
+        supplier_id,
+        supplier_name,
+        COUNT(*) AS line_count,
+        AVG(is_otif::numeric) AS monthly_otif_rate
+    FROM line_fact
+    GROUP BY month_start, supplier_id, supplier_name
+    HAVING COUNT(*) >= 30   -- sample size guardrail
+)
+
+-- Step 2: MAX across those monthly averages
+SELECT
+    supplier_id,
+    supplier_name,
+    MAX(monthly_otif_rate) AS best_monthly_otif_rate,
+    MIN(monthly_otif_rate) AS worst_monthly_otif_rate,
+    AVG(monthly_otif_rate) AS avg_monthly_otif_rate   -- avg of monthly avgs
+FROM monthly_otif
+GROUP BY supplier_id, supplier_name
+ORDER BY best_monthly_otif_rate DESC;
+
+
+-- ============================================================================
+-- PATTERN C: AVG OF SUMS (Average Monthly Spend per Supplier)
+-- ============================================================================
+-- Business goal:
+-- Average monthly spend is NOT:
+--   AVG(line_spend)  -- wrong grain
+-- It is:
+--   AVG( SUM(line_spend) per month )
+
+WITH
+params AS (
+    SELECT DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month
+),
+
+line_spend AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date) AS month_start,
+        p.supplier_id,
+        s.supplier_name,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    WHERE DATE_TRUNC('month', ph.po_date) >= (SELECT start_month FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+supplier_month_spend AS (
+    -- Step 1: SUM per supplier per month
+    SELECT
+        month_start,
+        supplier_id,
+        supplier_name,
+        SUM(line_spend) AS monthly_spend
+    FROM line_spend
+    GROUP BY month_start, supplier_id, supplier_name
+)
+
+-- Step 2: AVG across months (optionally only months where supplier had activity)
+SELECT
+    supplier_id,
+    supplier_name,
+    COUNT(*) AS active_months,
+    AVG(monthly_spend) AS avg_monthly_spend,
+    MAX(monthly_spend) AS max_monthly_spend,
+    MIN(monthly_spend) AS min_monthly_spend
+FROM supplier_month_spend
+GROUP BY supplier_id, supplier_name
+ORDER BY avg_monthly_spend DESC;
+
+
+-- ============================================================================
+-- PATTERN D: “MAX OF AVGS” across subgroups (Worst Plant by Avg Lead Time)
+-- ============================================================================
+-- Business goal:
+-- For each supplier, find the plant with the worst average lead time:
+--   1) Avg lead time per supplier x plant
+--   2) Max of those averages per supplier
+--
+-- Assumption:
+-- po_headers has: ship_to_plant
+-- po_headers has: po_date
+-- receipts_agg has: first_receipt_date
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+
+receipts_first AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+line_lead_time AS (
+    SELECT
+        p.supplier_id,
+        s.supplier_name,
+        ph.ship_to_plant AS plant,
+        ph.po_id,
+        pl.line_id,
+
+        -- Lead time in days (receipt - PO date); adjust for your business definition
+        (rf.first_receipt_date - ph.po_date) AS lead_time_days
+
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    JOIN receipts_first rf
+      ON rf.po_id = pl.po_id AND rf.line_id = pl.line_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+supplier_plant_avg AS (
+    -- Step 1: AVG per supplier x plant
+    SELECT
+        supplier_id,
+        supplier_name,
+        plant,
+        COUNT(*) AS line_count,
+        AVG(lead_time_days::numeric) AS avg_lead_time_days
+    FROM line_lead_time
+    GROUP BY supplier_id, supplier_name, plant
+    HAVING COUNT(*) >= 20
+),
+
+supplier_worst_plant AS (
+    -- Step 2: MAX of those averages per supplier
+    SELECT
+        supplier_id,
+        supplier_name,
+        MAX(avg_lead_time_days) AS worst_avg_lead_time_days
+    FROM supplier_plant_avg
+    GROUP BY supplier_id, supplier_name
+)
+
+-- Join back to get the plant name(s) that match the max (handles ties)
+SELECT
+    spa.supplier_id,
+    spa.supplier_name,
+    spa.plant,
+    spa.avg_lead_time_days AS plant_avg_lead_time_days,
+    swp.worst_avg_lead_time_days
+FROM supplier_plant_avg spa
+JOIN supplier_worst_plant swp
+  ON swp.supplier_id = spa.supplier_id
+ AND swp.worst_avg_lead_time_days = spa.avg_lead_time_days
+ORDER BY swp.worst_avg_lead_time_days DESC, spa.supplier_name, spa.plant;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) “AVG OF SUMS” means: aggregate to intermediate grain, then average.
+-- 2) “MAX OF AVGS” means: compute subgroup averages first, then take max.
+-- 3) Always add guardrails (HAVING COUNT(*) >= N) to avoid noisy extremes.
+-- 4) Use 2-step CTEs for auditability: you can SELECT * from each step.
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Advanced Date Range Queries
+-- ============================================================================
