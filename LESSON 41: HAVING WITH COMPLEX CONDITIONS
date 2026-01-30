@@ -1,0 +1,363 @@
+-- ============================================================================
+-- LESSON 41: HAVING WITH COMPLEX CONDITIONS (ADVANCED AGG FILTERING)
+-- Topic: Filter suppliers / categories / lanes AFTER aggregation using multi-criteria HAVING
+-- Output: “exception lists” for supply chain performance reviews
+-- ============================================================================
+-- Why HAVING matters:
+-- WHERE filters rows BEFORE aggregation.
+-- HAVING filters groups AFTER aggregation.
+--
+-- Typical use cases:
+-- - “Suppliers with spend > X AND OTIF < Y AND return_rate > Z”
+-- - “Categories where top supplier concentration > 60%”
+-- - “Plants with service level issues AND high backlog”
+--
+-- SQL style: Postgres-ish (adaptable)
+-- ============================================================================
+
+
+-- ============================================================================
+-- PATTERN A: Supplier exception list (spend + OTIF + returns + minimum volume)
+-- ============================================================================
+-- Business goal:
+-- Identify suppliers to review:
+--   - total_spend >= 100k
+--   - PO count >= 20 (avoid low-sample noise)
+--   - OTIF rate < 0.85
+--   - return_rate_qty > 0.02
+--   - AND at least 3 distinct SKUs supplied (diversity / not single-SKU edge case)
+
+WITH
+params AS (
+    SELECT
+        CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+returns_agg AS (
+    SELECT
+        rt.po_id,
+        rt.line_id,
+        SUM(rt.return_qty) AS return_qty
+    FROM returns rt
+    GROUP BY rt.po_id, rt.line_id
+),
+
+line_fact AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.promised_date,
+        ph.status,
+        pl.line_id,
+        pl.sku_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        p.supplier_id,
+        s.supplier_name,
+
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+        COALESCE(ra.received_qty, 0) AS received_qty,
+        COALESCE(rta.return_qty, 0)  AS return_qty,
+
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    LEFT JOIN returns_agg rta
+      ON rta.po_id = pl.po_id AND rta.line_id = pl.line_id
+
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+)
+
+SELECT
+    supplier_id,
+    supplier_name,
+
+    SUM(line_spend) AS total_spend,
+    COUNT(DISTINCT po_id) AS po_count,
+    COUNT(*) AS line_count,
+    COUNT(DISTINCT sku_id) AS sku_count,
+
+    AVG(is_otif::numeric) AS otif_rate,
+
+    SUM(return_qty) AS total_return_qty,
+    SUM(ordered_qty) AS total_ordered_qty,
+    CASE
+        WHEN SUM(ordered_qty) = 0 THEN NULL
+        ELSE (SUM(return_qty)::numeric / SUM(ordered_qty))
+    END AS return_rate_qty
+
+FROM line_fact
+GROUP BY supplier_id, supplier_name
+
+HAVING
+    -- Spend and sample size thresholds
+    SUM(line_spend) >= 100000
+    AND COUNT(DISTINCT po_id) >= 20
+    AND COUNT(DISTINCT sku_id) >= 3
+
+    -- Performance thresholds
+    AND AVG(is_otif::numeric) < 0.85
+    AND (SUM(return_qty)::numeric / NULLIF(SUM(ordered_qty), 0)) > 0.02
+
+ORDER BY total_spend DESC;
+
+
+-- ============================================================================
+-- PATTERN B: Conditional aggregates inside HAVING (multiple “bad flags”)
+-- ============================================================================
+-- Business goal:
+-- Find suppliers where:
+--   - >= 10 late lines
+--   - OR >= 5 incomplete lines
+--   - AND spend >= 50k
+--
+-- Technique:
+-- Use SUM(CASE WHEN ... THEN 1 ELSE 0 END) to count condition hits per group.
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+line_fact AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.promised_date,
+        pl.line_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        p.supplier_id,
+        s.supplier_name,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+        COALESCE(ra.received_qty, 0) AS received_qty,
+        ra.first_receipt_date
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+)
+
+SELECT
+    supplier_id,
+    supplier_name,
+    SUM(line_spend) AS total_spend,
+
+    -- Condition counts
+    SUM(CASE WHEN first_receipt_date IS NULL OR first_receipt_date > promised_date THEN 1 ELSE 0 END) AS late_line_count,
+    SUM(CASE WHEN received_qty < ordered_qty THEN 1 ELSE 0 END) AS incomplete_line_count,
+
+    COUNT(*) AS total_lines
+
+FROM line_fact
+GROUP BY supplier_id, supplier_name
+
+HAVING
+    SUM(line_spend) >= 50000
+    AND (
+        SUM(CASE WHEN first_receipt_date IS NULL OR first_receipt_date > promised_date THEN 1 ELSE 0 END) >= 10
+        OR
+        SUM(CASE WHEN received_qty < ordered_qty THEN 1 ELSE 0 END) >= 5
+    )
+
+ORDER BY total_spend DESC;
+
+
+-- ============================================================================
+-- PATTERN C: Multi-criteria HAVING with ratios + guardrails (avoid divide-by-zero)
+-- ============================================================================
+-- Business goal:
+-- “High-impact unreliable suppliers”:
+--   - Spend share of total spend >= 5%
+--   - OTIF < 90%
+--   - Late lines ratio >= 15%
+--   - Only consider suppliers with >= 30 lines
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '180 days' AS start_date
+),
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+line_fact AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.promised_date,
+        pl.line_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        p.supplier_id,
+        s.supplier_name,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+        COALESCE(ra.received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif,
+        CASE
+            WHEN ra.first_receipt_date IS NULL OR ra.first_receipt_date > ph.promised_date THEN 1 ELSE 0
+        END AS is_late
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+supplier_kpis AS (
+    SELECT
+        supplier_id,
+        supplier_name,
+        SUM(line_spend) AS total_spend,
+        COUNT(*) AS line_count,
+        AVG(is_otif::numeric) AS otif_rate,
+        AVG(is_late::numeric) AS late_line_rate
+    FROM line_fact
+    GROUP BY supplier_id, supplier_name
+),
+
+totals AS (
+    SELECT SUM(total_spend) AS all_spend
+    FROM supplier_kpis
+)
+
+SELECT
+    sk.supplier_id,
+    sk.supplier_name,
+    sk.total_spend,
+    (sk.total_spend / NULLIF(t.all_spend, 0)) AS spend_share,
+    sk.line_count,
+    sk.otif_rate,
+    sk.late_line_rate
+FROM supplier_kpis sk
+CROSS JOIN totals t
+
+-- HAVING equivalent: filter aggregated results here (since supplier_kpis already aggregated)
+WHERE
+    sk.line_count >= 30
+    AND (sk.total_spend / NULLIF(t.all_spend, 0)) >= 0.05
+    AND sk.otif_rate < 0.90
+    AND sk.late_line_rate >= 0.15
+
+ORDER BY sk.total_spend DESC;
+
+
+-- ============================================================================
+-- PATTERN D: Category concentration (HAVING on “top supplier share”)
+-- ============================================================================
+-- Business goal:
+-- Flag categories where one supplier dominates:
+--   - category total spend >= 200k
+--   - top supplier share >= 60%
+--
+-- Technique:
+--   1) Aggregate spend by category x supplier
+--   2) Compute category totals and max supplier spend
+--   3) HAVING on both total and dominance ratio
+
+WITH
+params AS (
+    SELECT CURRENT_DATE - INTERVAL '365 days' AS start_date
+),
+
+line_spend AS (
+    SELECT
+        p.category,
+        p.supplier_id,
+        s.supplier_name,
+        (pl.ordered_qty * pl.unit_cost) AS line_spend
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+cat_supplier AS (
+    SELECT
+        category,
+        supplier_id,
+        supplier_name,
+        SUM(line_spend) AS supplier_spend
+    FROM line_spend
+    GROUP BY category, supplier_id, supplier_name
+)
+
+SELECT
+    category,
+    SUM(supplier_spend) AS category_total_spend,
+    MAX(supplier_spend) AS top_supplier_spend,
+    (MAX(supplier_spend) / NULLIF(SUM(supplier_spend), 0)) AS top_supplier_share
+FROM cat_supplier
+GROUP BY category
+
+HAVING
+    SUM(supplier_spend) >= 200000
+    AND (MAX(supplier_spend) / NULLIF(SUM(supplier_spend), 0)) >= 0.60
+
+ORDER BY category_total_spend DESC;
+
+
+-- ============================================================================
+-- KEY CONCEPTS TO REMEMBER
+-- ============================================================================
+-- 1) HAVING filters groups AFTER aggregation (WHERE is before).
+-- 2) Complex HAVING is usually:
+--    - thresholds: SUM/COUNT/AVG
+--    - ratios: SUM(x)/SUM(y) with NULLIF
+--    - conditional aggregates: SUM(CASE WHEN ... THEN 1 END)
+-- 3) Guardrails:
+--    - Use NULLIF(denominator, 0) to avoid divide-by-zero
+--    - Add minimum sample sizes (lines, POs, SKUs) to avoid noise
+-- ============================================================================
+-- WHAT'S NEXT:
+-- Nested Aggregations
+-- ============================================================================
