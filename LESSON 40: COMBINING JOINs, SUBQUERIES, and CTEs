@@ -1,0 +1,659 @@
+-- ============================================================================
+-- LESSON 40: COMBINING JOINs, SUBQUERIES, and CTEs (REAL SUPPLY CHAIN REPORTS)
+-- Topic: Multi-source “Supplier OTIF + Spend + Returns + Inventory Risk” report
+-- Output: one executive table per Supplier x Month with KPI pack
+-- SQL style: Postgres-ish (easy to adapt to SQL Server / Snowflake / BigQuery)
+-- ============================================================================
+-- Why this matters:
+-- Real reports combine multiple grains and sources:
+--   - PO headers (purchase orders)
+--   - PO lines (qty/price)
+--   - Receipts (delivered qty + delivery date)
+--   - Returns/Claims (negative adjustments)
+--   - Inventory snapshots (risk / service constraints)
+--
+-- You will use:
+--   1) JOINs -> stitch master data + facts at correct grain
+--   2) CTEs  -> readable “pipes” for auditable transformations
+--   3) Subqueries -> lightweight “filters”, “top-N”, “latest snapshot”, etc.
+--
+-- Key grain rules:
+--   - Spend lives at PO line grain.
+--   - OTIF lives at PO line (or receipt) grain -> must be computed from receipts vs promised date.
+--   - Returns live at return line grain -> must be aggregated before joining to avoid duplicates.
+--   - Inventory snapshots are time-series -> pick latest-per-month before joining.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- DATA MODEL ASSUMPTIONS (typical)
+-- ----------------------------------------------------------------------------
+-- suppliers (dimension):
+-- - supplier_id, supplier_name, supplier_country, supplier_tier
+--
+-- products (dimension):
+-- - sku_id, sku_name, category, supplier_id
+--
+-- po_headers (header):
+-- - po_id, po_date, promised_date, status, ship_to_plant
+--
+-- po_lines (detail):
+-- - po_id, line_id, sku_id, ordered_qty, unit_cost, currency
+--
+-- receipts (events):
+-- - po_id, line_id, receipt_date, received_qty
+--
+-- returns (events):
+-- - return_id, po_id, line_id, return_date, return_qty, reason_code
+--
+-- inventory_snapshots (time-series):
+-- - snapshot_date, plant, sku_id, on_hand_qty, safety_stock_qty
+-- ----------------------------------------------------------------------------
+
+
+-- ============================================================================
+-- SECTION 1: Build a LINE-LEVEL base fact with JOINs (spend + delivery behavior)
+-- ============================================================================
+-- Business goal:
+-- Produce an “analysis-ready” line dataset with:
+--   - ordered_qty, spend
+--   - received_qty, first/last receipt date
+--   - OTIF flags (on-time, in-full, otif)
+--
+-- Technique highlights:
+--   - receipts are 1-to-many vs po_lines -> pre-aggregate receipts FIRST in a CTE
+--   - then join aggregated receipts to po_lines (prevents row explosion)
+
+WITH
+params AS (
+    SELECT
+        CURRENT_DATE AS asof_date,
+        (CURRENT_DATE - INTERVAL '180 days') AS start_date
+),
+
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        MAX(r.receipt_date) AS last_receipt_date,
+        SUM(r.received_qty) AS total_received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+line_fact AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.promised_date,
+        ph.status,
+        ph.ship_to_plant,
+
+        pl.line_id,
+        pl.sku_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        pl.currency,
+
+        p.category,
+        p.supplier_id,
+        s.supplier_name,
+        s.supplier_country,
+        s.supplier_tier,
+
+        -- Spend at line grain
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+
+        -- Receipt aggregates (may be NULL if not received yet)
+        COALESCE(ra.total_received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+        ra.last_receipt_date,
+
+        -- OTIF components (line-level)
+        CASE
+            WHEN ra.first_receipt_date IS NULL THEN 0
+            WHEN ra.first_receipt_date <= ph.promised_date THEN 1
+            ELSE 0
+        END AS is_on_time,
+
+        CASE
+            WHEN COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty THEN 1
+            ELSE 0
+        END AS is_in_full,
+
+        CASE
+            WHEN ra.first_receipt_date IS NULL THEN 0
+            WHEN ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+
+    FROM po_headers ph
+    JOIN po_lines pl
+      ON pl.po_id = ph.po_id
+    JOIN products p
+      ON p.sku_id = pl.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id  = pl.po_id
+     AND ra.line_id = pl.line_id
+
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+)
+
+SELECT *
+FROM line_fact
+ORDER BY po_date, po_id, line_id;
+
+
+-- ============================================================================
+-- SECTION 2: Add RETURNS using a separate CTE and JOIN (avoid duplicates)
+-- ============================================================================
+-- Business goal:
+-- Net spend and quality signal:
+--   net_spend = spend - (return_qty * unit_cost)  (simple proxy)
+--   return_rate_qty = total_return_qty / ordered_qty
+--
+-- Technique:
+--   - returns are 1-to-many vs line_fact -> aggregate returns per (po_id, line_id) first
+
+WITH
+params AS (
+    SELECT
+        (CURRENT_DATE - INTERVAL '180 days') AS start_date
+),
+
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS total_received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+returns_agg AS (
+    SELECT
+        rt.po_id,
+        rt.line_id,
+        SUM(rt.return_qty) AS total_return_qty,
+        COUNT(*) AS return_event_count,
+        MAX(rt.return_date) AS last_return_date
+    FROM returns rt
+    WHERE rt.return_date >= (SELECT start_date FROM params)
+    GROUP BY rt.po_id, rt.line_id
+),
+
+line_fact AS (
+    SELECT
+        ph.po_id,
+        ph.po_date,
+        ph.promised_date,
+        ph.status,
+        ph.ship_to_plant,
+        pl.line_id,
+        pl.sku_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        p.category,
+        p.supplier_id,
+        s.supplier_name,
+
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+
+        COALESCE(ra.total_received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+
+        CASE WHEN ra.first_receipt_date IS NOT NULL AND ra.first_receipt_date <= ph.promised_date THEN 1 ELSE 0 END AS is_on_time,
+        CASE WHEN COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty THEN 1 ELSE 0 END AS is_in_full,
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    WHERE ph.po_date >= (SELECT start_date FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+)
+
+SELECT
+    lf.*,
+
+    COALESCE(rta.total_return_qty, 0) AS return_qty,
+    COALESCE(rta.return_event_count, 0) AS return_event_count,
+    rta.last_return_date,
+
+    -- Simple “return value” proxy (unit_cost-based)
+    COALESCE(rta.total_return_qty, 0) * lf.unit_cost AS return_value_proxy,
+
+    -- Net spend proxy
+    lf.line_spend - (COALESCE(rta.total_return_qty, 0) * lf.unit_cost) AS net_spend_proxy,
+
+    CASE
+        WHEN lf.ordered_qty = 0 THEN NULL
+        ELSE COALESCE(rta.total_return_qty, 0)::numeric / lf.ordered_qty
+    END AS return_rate_qty
+
+FROM line_fact lf
+LEFT JOIN returns_agg rta
+  ON rta.po_id  = lf.po_id
+ AND rta.line_id = lf.line_id
+ORDER BY lf.po_date, lf.po_id, lf.line_id;
+
+
+-- ============================================================================
+-- SECTION 3: Monthly Supplier KPI pack (CTEs + WINDOW functions)
+-- ============================================================================
+-- Business goal:
+-- One row per Supplier x Month:
+--   - spend, net_spend_proxy
+--   - OTIF%, on-time%, in-full%
+--   - return_rate_qty
+--   - active POS, active lines
+--   - rank suppliers by spend within each month
+
+WITH
+params AS (
+    SELECT DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' AS start_month
+),
+
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS total_received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+
+returns_agg AS (
+    SELECT
+        rt.po_id,
+        rt.line_id,
+        SUM(rt.return_qty) AS total_return_qty
+    FROM returns rt
+    GROUP BY rt.po_id, rt.line_id
+),
+
+line_fact AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date) AS month_start,
+        ph.po_id,
+        ph.promised_date,
+        ph.status,
+        pl.line_id,
+        pl.sku_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+
+        p.category,
+        p.supplier_id,
+        s.supplier_name,
+        s.supplier_country,
+        s.supplier_tier,
+
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+
+        COALESCE(ra.total_received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+
+        COALESCE(rta.total_return_qty, 0) AS return_qty,
+
+        CASE WHEN ra.first_receipt_date IS NOT NULL AND ra.first_receipt_date <= ph.promised_date THEN 1 ELSE 0 END AS is_on_time,
+        CASE WHEN COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty THEN 1 ELSE 0 END AS is_in_full,
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    LEFT JOIN returns_agg rta
+      ON rta.po_id = pl.po_id AND rta.line_id = pl.line_id
+
+    WHERE DATE_TRUNC('month', ph.po_date) >= (SELECT start_month FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+
+supplier_month AS (
+    SELECT
+        month_start,
+        supplier_id,
+        supplier_name,
+        supplier_country,
+        supplier_tier,
+
+        -- Spend metrics
+        SUM(line_spend) AS total_spend,
+        SUM(line_spend - (return_qty * unit_cost)) AS net_spend_proxy,
+
+        -- Volumes
+        SUM(ordered_qty) AS total_ordered_qty,
+        SUM(received_qty) AS total_received_qty,
+        SUM(return_qty) AS total_return_qty,
+
+        -- Counts at correct grain
+        COUNT(DISTINCT po_id) AS po_count,
+        COUNT(*) AS line_count,
+
+        -- Service KPIs (share of lines)
+        AVG(is_on_time::numeric) AS on_time_rate,
+        AVG(is_in_full::numeric) AS in_full_rate,
+        AVG(is_otif::numeric)    AS otif_rate,
+
+        -- Returns rate (qty-based)
+        CASE
+            WHEN SUM(ordered_qty) = 0 THEN NULL
+            ELSE (SUM(return_qty)::numeric / SUM(ordered_qty))
+        END AS return_rate_qty
+
+    FROM line_fact
+    GROUP BY
+        month_start, supplier_id, supplier_name, supplier_country, supplier_tier
+)
+
+SELECT
+    sm.*,
+
+    -- Rank suppliers by spend per month (subquery-like analytics via window function)
+    RANK() OVER (
+        PARTITION BY sm.month_start
+        ORDER BY sm.total_spend DESC
+    ) AS spend_rank_in_month
+
+FROM supplier_month sm
+ORDER BY sm.month_start, spend_rank_in_month, sm.supplier_name;
+
+
+-- ============================================================================
+-- SECTION 4: Add “Inventory Risk” with a correlated SUBQUERY (latest snapshot)
+-- ============================================================================
+-- Business goal:
+-- For each Supplier x Month, add:
+--   - count of SKUs at risk (on_hand < safety_stock) in that month
+--
+-- Technique:
+--   - inventory_snapshots are daily (or weekly)
+--   - For each month, pick the latest snapshot_date within that month (subquery)
+--   - Then aggregate risk by supplier (join inventory -> products -> suppliers)
+--
+-- Note:
+-- This section intentionally uses SUBQUERIES to show a common real-world pattern.
+
+WITH
+params AS (
+    SELECT DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '6 months' AS start_month
+),
+
+-- 1) Month calendar (simple generator; replace as needed for your DB)
+months AS (
+    SELECT generate_series(
+        (SELECT start_month FROM params),
+        DATE_TRUNC('month', CURRENT_DATE),
+        INTERVAL '1 month'
+    )::date AS month_start
+),
+
+-- 2) For each month, find the latest snapshot date within that month (SUBQUERY pattern)
+latest_snapshot_per_month AS (
+    SELECT
+        m.month_start,
+        (
+            SELECT MAX(i.snapshot_date)
+            FROM inventory_snapshots i
+            WHERE i.snapshot_date >= m.month_start
+              AND i.snapshot_date <  (m.month_start + INTERVAL '1 month')
+        ) AS snapshot_date
+    FROM months m
+),
+
+-- 3) Materialize inventory at those month-end snapshots
+month_end_inventory AS (
+    SELECT
+        lspm.month_start,
+        inv.snapshot_date,
+        inv.plant,
+        inv.sku_id,
+        inv.on_hand_qty,
+        inv.safety_stock_qty
+    FROM latest_snapshot_per_month lspm
+    JOIN inventory_snapshots inv
+      ON inv.snapshot_date = lspm.snapshot_date
+),
+
+-- 4) Supplier risk rollup
+supplier_inventory_risk AS (
+    SELECT
+        mei.month_start,
+        s.supplier_id,
+        s.supplier_name,
+
+        COUNT(*) FILTER (WHERE mei.on_hand_qty < mei.safety_stock_qty) AS at_risk_sku_count,
+        COUNT(*) AS sku_count_in_snapshot,
+
+        AVG(
+            CASE
+                WHEN mei.safety_stock_qty = 0 THEN NULL
+                ELSE (mei.on_hand_qty::numeric / mei.safety_stock_qty)
+            END
+        ) AS avg_cover_vs_safety_stock
+
+    FROM month_end_inventory mei
+    JOIN products p
+      ON p.sku_id = mei.sku_id
+    JOIN suppliers s
+      ON s.supplier_id = p.supplier_id
+    GROUP BY mei.month_start, s.supplier_id, s.supplier_name
+)
+
+SELECT *
+FROM supplier_inventory_risk
+ORDER BY month_start, at_risk_sku_count DESC;
+
+
+-- ============================================================================
+-- SECTION 5: FINAL EXEC REPORT (JOIN KPI PACK + INVENTORY RISK)
+-- ============================================================================
+-- Business goal:
+-- One table per Supplier x Month:
+--   - Spend, OTIF, returns (from procurement execution)
+--   - Inventory risk (from planning/ops snapshots)
+--
+-- Technique:
+--   - Build each KPI block as its own CTE at the SAME grain (supplier x month)
+--   - Then JOIN those blocks
+
+WITH
+params AS (
+    SELECT DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '6 months' AS start_month
+),
+
+-- ----------------------------
+-- A) Procurement execution KPIs
+-- ----------------------------
+receipts_agg AS (
+    SELECT
+        r.po_id,
+        r.line_id,
+        MIN(r.receipt_date) AS first_receipt_date,
+        SUM(r.received_qty) AS total_received_qty
+    FROM receipts r
+    GROUP BY r.po_id, r.line_id
+),
+returns_agg AS (
+    SELECT
+        rt.po_id,
+        rt.line_id,
+        SUM(rt.return_qty) AS total_return_qty
+    FROM returns rt
+    GROUP BY rt.po_id, rt.line_id
+),
+line_fact AS (
+    SELECT
+        DATE_TRUNC('month', ph.po_date) AS month_start,
+        ph.po_id,
+        ph.promised_date,
+        ph.status,
+        pl.line_id,
+        pl.ordered_qty,
+        pl.unit_cost,
+        p.supplier_id,
+        s.supplier_name,
+
+        (pl.ordered_qty * pl.unit_cost) AS line_spend,
+
+        COALESCE(ra.total_received_qty, 0) AS received_qty,
+        ra.first_receipt_date,
+
+        COALESCE(rta.total_return_qty, 0) AS return_qty,
+
+        CASE WHEN ra.first_receipt_date IS NOT NULL AND ra.first_receipt_date <= ph.promised_date THEN 1 ELSE 0 END AS is_on_time,
+        CASE WHEN COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty THEN 1 ELSE 0 END AS is_in_full,
+        CASE
+            WHEN ra.first_receipt_date IS NOT NULL
+             AND ra.first_receipt_date <= ph.promised_date
+             AND COALESCE(ra.total_received_qty, 0) >= pl.ordered_qty
+            THEN 1 ELSE 0
+        END AS is_otif
+    FROM po_headers ph
+    JOIN po_lines pl ON pl.po_id = ph.po_id
+    JOIN products p  ON p.sku_id = pl.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    LEFT JOIN receipts_agg ra
+      ON ra.po_id = pl.po_id AND ra.line_id = pl.line_id
+    LEFT JOIN returns_agg rta
+      ON rta.po_id = pl.po_id AND rta.line_id = pl.line_id
+    WHERE DATE_TRUNC('month', ph.po_date) >= (SELECT start_month FROM params)
+      AND ph.status NOT IN ('Cancelled', 'Draft')
+),
+supplier_month_kpis AS (
+    SELECT
+        month_start,
+        supplier_id,
+        supplier_name,
+        SUM(line_spend) AS total_spend,
+        SUM(line_spend - (return_qty * unit_cost)) AS net_spend_proxy,
+        COUNT(DISTINCT po_id) AS po_count,
+        COUNT(*) AS line_count,
+        AVG(is_on_time::numeric) AS on_time_rate,
+        AVG(is_in_full::numeric) AS in_full_rate,
+        AVG(is_otif::numeric)    AS otif_rate,
+        CASE
+            WHEN SUM(ordered_qty) = 0 THEN NULL
+            ELSE (SUM(return_qty)::numeric / SUM(ordered_qty))
+        END AS return_rate_qty
+    FROM line_fact
+    GROUP BY month_start, supplier_id, supplier_name
+),
+
+-- ----------------------------
+-- B) Inventory risk KPIs
+-- ----------------------------
+months AS (
+    SELECT generate_series(
+        (SELECT start_month FROM params),
+        DATE_TRUNC('month', CURRENT_DATE),
+        INTERVAL '1 month'
+    )::date AS month_start
+),
+latest_snapshot_per_month AS (
+    SELECT
+        m.month_start,
+        (
+            SELECT MAX(i.snapshot_date)
+            FROM inventory_snapshots i
+            WHERE i.snapshot_date >= m.month_start
+              AND i.snapshot_date <  (m.month_start + INTERVAL '1 month')
+        ) AS snapshot_date
+    FROM months m
+),
+month_end_inventory AS (
+    SELECT
+        lspm.month_start,
+        inv.snapshot_date,
+        inv.sku_id,
+        inv.on_hand_qty,
+        inv.safety_stock_qty
+    FROM latest_snapshot_per_month lspm
+    JOIN inventory_snapshots inv
+      ON inv.snapshot_date = lspm.snapshot_date
+),
+supplier_inventory_risk AS (
+    SELECT
+        mei.month_start,
+        s.supplier_id,
+        COUNT(*) FILTER (WHERE mei.on_hand_qty < mei.safety_stock_qty) AS at_risk_sku_count
+    FROM month_end_inventory mei
+    JOIN products p  ON p.sku_id = mei.sku_id
+    JOIN suppliers s ON s.supplier_id = p.supplier_id
+    GROUP BY mei.month_start, s.supplier_id
+)
+
+-- ----------------------------
+-- FINAL: join KPI blocks at same grain
+-- ----------------------------
+SELECT
+    smk.month_start,
+    smk.supplier_id,
+    smk.supplier_name,
+
+    smk.total_spend,
+    smk.net_spend_proxy,
+    smk.po_count,
+    smk.line_count,
+
+    smk.on_time_rate,
+    smk.in_full_rate,
+    smk.otif_rate,
+    smk.return_rate_qty,
+
+    COALESCE(sir.at_risk_sku_count, 0) AS at_risk_sku_count,
+
+    RANK() OVER (
+        PARTITION BY smk.month_start
+        ORDER BY smk.total_spend DESC
+    ) AS spend_rank_in_month
+
+FROM supplier_month_kpis smk
+LEFT JOIN supplier_inventory_risk sir
+  ON sir.month_start  = smk.month_start
+ AND sir.supplier_id  = smk.supplier_id
+ORDER BY smk.month_start, spend_rank_in_month, smk.supplier_name;
+
+
+-- ============================================================================
+-- PRACTICE EXERCISES
+-- ============================================================================
+-- 1) Add a “Top 10 suppliers by OTIF drop vs last month”:
+--    - compute otif_rate by month
+--    - LAG(otif_rate) over supplier_id
+--    - order by (otif_rate - lag_otif)
+--
+-- 2) Add “plant” segmentation:
+--    - keep ship_to_plant in line_fact
+--    - roll up Supplier x Plant x Month
+--
+-- 3) Currency normalization:
+--    - join fx_rates (date, currency, rate_to_eur)
+--    - convert line_spend to EUR at po_date rate before aggregations
+-- ============================================================================
+-- WHAT'S NEXT:
+-- HAVING with Complex Conditions
+-- ============================================================================
